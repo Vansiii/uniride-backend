@@ -1,0 +1,23 @@
+# CI: lint, formato, pruebas y build en cada PR (AGENTS.md §9 del repositorio principal).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:verificar --if-present
+      - run: npm test
+      - run: npm run test:e2e --if-present
+      - run: npm run build

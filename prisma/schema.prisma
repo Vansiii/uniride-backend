@@ -1,0 +1,12 @@
+// Esquema de UniRide (SPECS/ssd.md §6). Los modelos llegan con cada HU (primero HU-06).
+// Convención: model en PascalCase singular + @@map a la tabla snake_case plural.
+// Las políticas RLS van en SQL dentro de las migraciones (Prisma no las modela).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
