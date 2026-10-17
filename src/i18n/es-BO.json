@@ -1,0 +1,8 @@
+{
+  "comun.errores.validacion": "Los datos enviados no son válidos.",
+  "comun.errores.interno": "Ocurrió un error inesperado. Inténtalo de nuevo.",
+  "comun.errores.no_autenticado": "Debes iniciar sesión.",
+  "autenticacion.sesion.credenciales_invalidas": "Correo o contraseña incorrectos.",
+  "autenticacion.sesion.bloqueada": "Demasiados intentos. Vuelve a intentarlo más tarde.",
+  "autenticacion.sesion.expirada": "Tu sesión expiró. Inicia sesión de nuevo."
+}
