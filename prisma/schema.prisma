@@ -10,3 +10,56 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// --- HU-06: cuentas, sesiones y auditoría ---
+
+/// Dato personal (D-07): sin organizacion_id, se protege por dueño.
+model Usuario {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  correo                String
+  hashContrasena        String    @map("hash_contrasena")
+  nombreCompleto        String    @map("nombre_completo")
+  rolPlataforma         String?   @map("rol_plataforma")
+  estadoIdentidad       String    @default("no_verificada") @map("estado_identidad")
+  intentosFallidos      Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta        DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  ultimaOrganizacionId  String?   @map("ultima_organizacion_id") @db.Uuid
+  consentimientoDatosEn DateTime? @map("consentimiento_datos_en") @db.Timestamptz(3)
+  creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  tokensRefresco TokenRefresco[]
+
+  @@map("usuarios")
+}
+
+model TokenRefresco {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId     String    @map("usuario_id") @db.Uuid
+  hashToken     String    @unique @map("hash_token")
+  tipoCliente   String    @map("tipo_cliente")
+  venceEn       DateTime  @map("vence_en") @db.Timestamptz(3)
+  sesionVenceEn DateTime  @map("sesion_vence_en") @db.Timestamptz(3)
+  revocadoEn    DateTime? @map("revocado_en") @db.Timestamptz(3)
+  creadoEn      DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@map("tokens_refresco")
+}
+
+/// Solo inserción. `organizacion_id` sin FK hasta que HU-01 cree `organizaciones`.
+model RegistroAuditoria {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String?  @map("organizacion_id") @db.Uuid
+  actorId        String?  @map("actor_id") @db.Uuid
+  accion         String
+  entidad        String
+  entidadId      String?  @map("entidad_id")
+  resultado      String
+  detalle        Json?
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([organizacionId])
+  @@map("registros_auditoria")
+}

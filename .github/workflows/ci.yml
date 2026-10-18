@@ -10,6 +10,22 @@ on:
 jobs:
   verificar:
     runs-on: ubuntu-latest
+    # PostgreSQL real para las pruebas e2e (RLS, ssd.md §15). Contraseñas solo de CI.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: uniride
+          POSTGRES_USER: uniride_migraciones
+          POSTGRES_PASSWORD: ci-migraciones
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U uniride_migraciones -d uniride"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://uniride_app:ci-app@localhost:5432/uniride
+      DATABASE_URL_MIGRACIONES: postgresql://uniride_migraciones:ci-migraciones@localhost:5432/uniride
+      JWT_ACCESO_SECRETO: secreto-solo-para-ci
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -20,5 +36,9 @@ jobs:
       - run: npm run lint
       - run: npm run format:verificar --if-present
       - run: npm test
+      - name: Crear el rol de la API y aplicar migraciones
+        run: |
+          PGPASSWORD=ci-migraciones psql -h localhost -U uniride_migraciones -d uniride -v ON_ERROR_STOP=1 -c "CREATE ROLE uniride_app LOGIN PASSWORD 'ci-app' NOSUPERUSER NOBYPASSRLS" -c "GRANT USAGE ON SCHEMA public TO uniride_app"
+          npx prisma migrate deploy
       - run: npm run test:e2e --if-present
       - run: npm run build
