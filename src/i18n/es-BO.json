@@ -2,7 +2,18 @@
   "comun.errores.validacion": "Los datos enviados no son válidos.",
   "comun.errores.interno": "Ocurrió un error inesperado. Inténtalo de nuevo.",
   "comun.errores.no_autenticado": "Debes iniciar sesión.",
+  "comun.errores.no_autorizado": "No tienes permiso para realizar esta acción.",
+  "comun.errores.no_encontrado": "No se encontró lo que buscas.",
   "autenticacion.sesion.credenciales_invalidas": "Correo o contraseña incorrectos.",
   "autenticacion.sesion.bloqueada": "Demasiados intentos. Vuelve a intentarlo más tarde.",
-  "autenticacion.sesion.expirada": "Tu sesión expiró. Inicia sesión de nuevo."
+  "autenticacion.sesion.expirada": "Tu sesión expiró. Inicia sesión de nuevo.",
+  "organizaciones.alta.nombre_duplicado": "Ya existe una organización con ese nombre.",
+  "organizaciones.alta.precio_maximo_invalido": "El precio máximo por viaje debe ser mayor que cero.",
+  "organizaciones.alta.correo_invalido": "El correo del administrador no es válido.",
+  "organizaciones.alta.invitacion_no_enviada": "La organización se creó, pero no pudimos enviar la invitación. Puedes reenviarla.",
+  "organizaciones.invitacion.vencida": "La invitación venció o ya fue usada. Pide que te envíen una nueva.",
+  "organizaciones.invitacion.ya_aceptada": "El administrador ya aceptó la invitación.",
+  "organizaciones.invitacion.contrasena_debil": "La contraseña debe tener al menos 8 caracteres, con letras y números.",
+  "notificaciones.invitacion_admin.asunto": "Te invitaron a administrar {organizacion} en UniRide",
+  "notificaciones.invitacion_admin.cuerpo": "Hola {nombre},\n\nTe invitaron a administrar {organizacion} en UniRide.\nAcepta la invitación en las próximas 72 horas desde este enlace:\n{enlace}\n\nSi no esperabas este correo, ignóralo."
 }

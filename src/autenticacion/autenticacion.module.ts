@@ -18,6 +18,7 @@ import { YoController } from './yo.controller.js';
     }),
   ],
   controllers: [AutenticacionController, YoController],
+  exports: [AutenticacionService],
   providers: [AutenticacionService, { provide: APP_GUARD, useClass: JwtGuard }],
 })
 export class AutenticacionModule {}
