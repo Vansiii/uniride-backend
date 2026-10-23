@@ -38,7 +38,7 @@ export class AutenticacionController {
       dto.contrasena,
       dto.tipoCliente,
     );
-    return this.responder(res, sesion, dto.tipoCliente);
+    return responderSesion(res, sesion, dto.tipoCliente);
   }
 
   @Publico()
@@ -52,7 +52,7 @@ export class AutenticacionController {
   ) {
     const token = dto.tokenRefresco ?? req.cookies?.[COOKIE];
     const { sesion, tipoCliente } = await this.servicio.refrescar(token ?? '');
-    return this.responder(res, sesion, tipoCliente);
+    return responderSesion(res, sesion, tipoCliente);
   }
 
   @ApiBearerAuth()
@@ -70,16 +70,21 @@ export class AutenticacionController {
     );
     res.clearCookie(COOKIE, { path: RUTA_COOKIE });
   }
+}
 
-  private responder(res: Response, sesion: Sesion, tipo: TipoCliente) {
-    if (tipo === 'movil') return sesion;
-    res.cookie(COOKIE, sesion.tokenRefresco, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: RUTA_COOKIE,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-    return { tokenAcceso: sesion.tokenAcceso };
-  }
+/** Móvil recibe ambos tokens en el cuerpo; web recibe el refresco en cookie httpOnly. */
+export function responderSesion(
+  res: Response,
+  sesion: Sesion,
+  tipo: TipoCliente,
+) {
+  if (tipo === 'movil') return sesion;
+  res.cookie(COOKIE, sesion.tokenRefresco, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: RUTA_COOKIE,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+  return { tokenAcceso: sesion.tokenAcceso };
 }

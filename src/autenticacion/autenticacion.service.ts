@@ -74,10 +74,6 @@ export class AutenticacionService {
       where: { id: usuario.id },
       data: { intentosFallidos: 0, bloqueadoHasta: null },
     });
-    const dias =
-      tipoCliente === 'movil'
-        ? diasDe(process.env.JWT_REFRESCO_DURACION_MOVIL, 30)
-        : diasDe(process.env.JWT_REFRESCO_DURACION_WEB, 7);
     await this.auditoria.registrar({
       accion: 'sesion.inicio',
       entidad: 'usuario',
@@ -86,11 +82,28 @@ export class AutenticacionService {
       actorId: usuario.id,
       detalle: { tipoCliente },
     });
-    return this.emitir(
+    return this.abrirSesion(
       usuario.id,
       usuario.ultimaOrganizacionId,
       tipoCliente,
-      new Date(ahora.getTime() + dias * DIA_MS),
+    );
+  }
+
+  /** Abre una sesión nueva sin pedir contraseña: solo para flujos que ya autenticaron a la persona (p. ej. aceptar invitación). */
+  abrirSesion(
+    usuarioId: string,
+    org: string | null,
+    tipoCliente: TipoCliente,
+  ): Promise<Sesion> {
+    const dias =
+      tipoCliente === 'movil'
+        ? diasDe(process.env.JWT_REFRESCO_DURACION_MOVIL, 30)
+        : diasDe(process.env.JWT_REFRESCO_DURACION_WEB, 7);
+    return this.emitir(
+      usuarioId,
+      org,
+      tipoCliente,
+      new Date(Date.now() + dias * DIA_MS),
     );
   }
 

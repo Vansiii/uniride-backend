@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../comun/prisma.service.js';
+import { PrismaService, type Transaccion } from '../comun/prisma.service.js';
 
 export interface EventoAuditoria {
   accion: string;
@@ -16,9 +16,13 @@ export interface EventoAuditoria {
 export class AuditoriaService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async registrar(e: EventoAuditoria): Promise<void> {
+  /** Con `tx` el evento entra en la misma transacción que el cambio auditado. */
+  async registrar(
+    e: EventoAuditoria,
+    tx: Transaccion | PrismaService = this.prisma,
+  ): Promise<void> {
     // createMany evita el RETURNING, que RLS no permitiría leer en filas sin organización.
-    await this.prisma.registroAuditoria.createMany({
+    await tx.registroAuditoria.createMany({
       data: [
         {
           accion: e.accion,
