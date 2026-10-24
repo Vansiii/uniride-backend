@@ -28,6 +28,7 @@ model Usuario {
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   tokensRefresco TokenRefresco[]
+  membresias     Membresia[]
 
   @@map("usuarios")
 }
@@ -48,7 +49,7 @@ model TokenRefresco {
   @@map("tokens_refresco")
 }
 
-/// Solo inserción. `organizacion_id` sin FK hasta que HU-01 cree `organizaciones`.
+/// Solo inserción. `organizacion_id` sin FK: la auditoría también guarda eventos sin organización.
 model RegistroAuditoria {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizacionId String?  @map("organizacion_id") @db.Uuid
@@ -62,4 +63,78 @@ model RegistroAuditoria {
 
   @@index([organizacionId])
   @@map("registros_auditoria")
+}
+
+// --- HU-01: organizaciones, membresías, invitaciones y cola de correos ---
+
+model Organizacion {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre            String
+  nombreNormalizado String   @unique @map("nombre_normalizado")
+  tipo              String
+  modoAprobacion    String   @default("manual") @map("modo_aprobacion")
+  precioMaximoUrc   Decimal  @map("precio_maximo_urc") @db.Decimal(12, 2)
+  estado            String   @default("activa")
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  membresias   Membresia[]
+  invitaciones Invitacion[]
+
+  @@map("organizaciones")
+}
+
+model Membresia {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String    @map("organizacion_id") @db.Uuid
+  usuarioId           String    @map("usuario_id") @db.Uuid
+  rol                 String
+  estado              String
+  correoInstitucional String?   @map("correo_institucional")
+  decididoPor         String?   @map("decidido_por") @db.Uuid
+  decididoEn          DateTime? @map("decidido_en") @db.Timestamptz(3)
+  motivo              String?
+  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id])
+
+  @@unique([organizacionId, usuarioId])
+  @@map("membresias")
+}
+
+model Invitacion {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String    @map("organizacion_id") @db.Uuid
+  correo         String
+  nombre         String
+  hashToken      String    @unique @map("hash_token")
+  venceEn        DateTime  @map("vence_en") @db.Timestamptz(3)
+  usadaEn        DateTime? @map("usada_en") @db.Timestamptz(3)
+  reemplazadaEn  DateTime? @map("reemplazada_en") @db.Timestamptz(3)
+  creadoPor      String    @map("creado_por") @db.Uuid
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+
+  @@index([organizacionId])
+  @@map("invitaciones")
+}
+
+/// Tabla interna del worker de correos: sin organización ni RLS.
+model CorreoSaliente {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  destinatario     String
+  plantilla        String
+  datos            Json
+  estado           String   @default("pendiente")
+  intentos         Int      @default(0)
+  proximoIntentoEn DateTime @default(now()) @map("proximo_intento_en") @db.Timestamptz(3)
+  ultimoError      String?  @map("ultimo_error")
+  referenciaTipo   String?  @map("referencia_tipo")
+  referenciaId     String?  @map("referencia_id") @db.Uuid
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([estado, proximoIntentoEn])
+  @@index([referenciaTipo, referenciaId])
+  @@map("correos_salientes")
 }
