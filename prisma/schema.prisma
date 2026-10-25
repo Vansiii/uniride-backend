@@ -79,8 +79,24 @@ model Organizacion {
 
   membresias   Membresia[]
   invitaciones Invitacion[]
+  dominios     DominioOrganizacion[]
 
   @@map("organizaciones")
+}
+
+// --- HU-02: reglas de afiliación ---
+
+/// Dominio en minúsculas y sin `@`; UNIQUE en toda la plataforma (RN-2).
+model DominioOrganizacion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  dominio        String   @unique
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+
+  @@index([organizacionId])
+  @@map("dominios_organizacion")
 }
 
 model Membresia {
