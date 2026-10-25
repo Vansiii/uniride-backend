@@ -25,10 +25,16 @@
   "organizaciones.afiliacion.dominio_no_disponible": "Ese dominio no está disponible.",
   "organizaciones.afiliacion.dominio_invalido": "El dominio no es válido o es un correo público (gmail.com, hotmail.com, outlook.com, yahoo.com o icloud.com).",
   "organizaciones.afiliacion.minimo_un_dominio": "La organización debe tener al menos un dominio.",
+  "membresias.decision.ya_decidida": "Esta solicitud ya fue decidida.",
   "notificaciones.invitacion_admin.asunto": "Te invitaron a administrar {organizacion} en UniRide",
   "notificaciones.invitacion_admin.cuerpo": "Hola {nombre},\n\nTe invitaron a administrar {organizacion} en UniRide.\nAcepta la invitación en las próximas 72 horas desde este enlace:\n{enlace}\n\nSi no esperabas este correo, ignóralo.",
   "notificaciones.otp_registro.asunto": "Tu código de UniRide: {codigo}",
   "notificaciones.otp_registro.cuerpo": "Tu código para terminar el registro en UniRide es:\n\n{codigo}\n\nVence en {minutos} minutos y sirve una sola vez. No lo compartas con nadie.\nSi no pediste registrarte, ignora este correo.",
   "notificaciones.ya_tienes_cuenta.asunto": "Ya tienes una cuenta en UniRide",
-  "notificaciones.ya_tienes_cuenta.cuerpo": "Alguien intentó registrarse en UniRide con este correo, pero ya tienes una cuenta.\n\nSi fuiste tú, inicia sesión con tu contraseña.\nSi no fuiste tú, ignora este correo: tu cuenta sigue igual."
+  "notificaciones.ya_tienes_cuenta.cuerpo": "Alguien intentó registrarse en UniRide con este correo, pero ya tienes una cuenta.\n\nSi fuiste tú, inicia sesión con tu contraseña.\nSi no fuiste tú, ignora este correo: tu cuenta sigue igual.",
+  "notificaciones.membresia_aprobada.asunto": "Ya eres miembro de {organizacion} en UniRide",
+  "notificaciones.membresia_aprobada.cuerpo": "Hola {nombre},\n\nEl administrador de {organizacion} aprobó tu solicitud de ingreso a UniRide.\nPara viajar, todavía debes verificar tu identidad y vincular tu teléfono desde la app.",
+  "notificaciones.membresia_rechazada.asunto": "Tu solicitud para {organizacion} en UniRide no fue aprobada",
+  "notificaciones.membresia_rechazada.cuerpo": "Hola {nombre},\n\nEl administrador de {organizacion} rechazó tu solicitud de ingreso a UniRide.\n{motivo}\nSi crees que es un error, comunícate con el administrador de tu organización.",
+  "notificaciones.membresia_rechazada.motivo": "Motivo: {motivo}\n"
 }
