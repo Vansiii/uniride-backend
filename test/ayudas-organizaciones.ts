@@ -11,6 +11,8 @@ import { CorreosService } from '../src/notificaciones/correos.service.js';
 export const DOMINIO = '@hu01.test';
 export const PREFIJO = 'HU01 ';
 export const CONTRASENA = 'Clave1234';
+/** También los subdominios (`ana@a.hu01.test`), que el registro de HU-05 usa como dominios de organización. */
+const CORREOS = `%${DOMINIO.slice(1)}`;
 
 export interface Entorno {
   app: INestApplication;
@@ -27,6 +29,7 @@ export interface Entorno {
 export async function prepararEntorno(): Promise<Entorno> {
   process.env.JWT_ACCESO_SECRETO ??= 'secreto-de-pruebas';
   process.env.CORREO_MODO = 'consola';
+  process.env.OTP_SECRETO ||= 'secreto-otp-de-pruebas';
   const bd = new pg.Client({
     connectionString: process.env.DATABASE_URL_MIGRACIONES,
   });
@@ -41,10 +44,15 @@ export async function prepararEntorno(): Promise<Entorno> {
 
   const limpiar = async () => {
     const orgs = `SELECT id FROM organizaciones WHERE nombre LIKE '${PREFIJO}%'`;
-    const usuarios = `SELECT id FROM usuarios WHERE correo LIKE '%${DOMINIO}'`;
+    const usuarios = `SELECT id FROM usuarios WHERE correo LIKE '${CORREOS}'`;
+    const codigos = `SELECT id::text FROM codigos_otp WHERE correo LIKE '${CORREOS}'`;
     await bd.query(
-      `DELETE FROM correos_salientes WHERE destinatario LIKE '%${DOMINIO}'`,
+      `DELETE FROM correos_salientes WHERE destinatario LIKE '${CORREOS}'`,
     );
+    await bd.query(
+      `DELETE FROM registros_auditoria WHERE entidad = 'codigo_otp' AND entidad_id IN (${codigos})`,
+    );
+    await bd.query(`DELETE FROM codigos_otp WHERE correo LIKE '${CORREOS}'`);
     await bd.query(
       `DELETE FROM registros_auditoria WHERE organizacion_id IN (${orgs}) OR actor_id IN (${usuarios})`,
     );
@@ -61,7 +69,7 @@ export async function prepararEntorno(): Promise<Entorno> {
     await bd.query(
       `DELETE FROM tokens_refresco WHERE usuario_id IN (${usuarios})`,
     );
-    await bd.query(`DELETE FROM usuarios WHERE correo LIKE '%${DOMINIO}'`);
+    await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
   await limpiar();
 
@@ -134,6 +142,39 @@ export async function organizacionConAdmin(
     adminId: rows[0].id as string,
     token: aceptada.body.tokenAcceso as string,
   };
+}
+
+/** Organización con admin y un dominio de correo (`<letra>.hu01.test`) para el registro de HU-05. */
+export async function organizacionConDominio(
+  e: Entorno,
+  superToken: string,
+  sufijo: string,
+  dominio: string,
+  modoAprobacion: 'manual' | 'automatica',
+) {
+  const org = await organizacionConAdmin(e, superToken, sufijo);
+  await e
+    .api()
+    .put(`/api/v1/organizaciones/${org.id}/afiliacion`)
+    .set({ Authorization: `Bearer ${org.token}` })
+    .send({ dominios: [dominio], modoAprobacion })
+    .expect(200);
+  return org;
+}
+
+/** Captura los correos enviados en el momento (OTP); `codigoPara` lee el último código de ese correo. */
+export function buzon(e: Entorno) {
+  const enviados: { para: string; asunto: string; texto: string }[] = [];
+  e.correos.enviador = {
+    enviar: async (para, c) => {
+      enviados.push({ para, ...c });
+    },
+  };
+  const codigoPara = (para: string) => {
+    const ultimo = enviados.filter((c) => c.para === para).pop();
+    return ultimo?.texto.match(/\b\d{6}\b/)?.[0];
+  };
+  return { enviados, codigoPara };
 }
 
 /** Usuario con membresía en la organización (activa en su próxima sesión); devuelve su token. */

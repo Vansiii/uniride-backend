@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService, type Transaccion } from '../comun/prisma.service.js';
+import { esContrasenaSegura } from '../comun/validaciones.js';
 import { CorreosService } from '../notificaciones/correos.service.js';
 import type { CrearOrganizacionDto } from './dto/organizacion.dto.js';
 
@@ -209,7 +210,7 @@ export class OrganizacionesService {
             'autenticacion.sesion.credenciales_invalidas',
           );
       } else {
-        if (!/^(?=.*[A-Za-z])(?=.*\d).{8,72}$/.test(contrasena))
+        if (!esContrasenaSegura(contrasena))
           throw new ErrorNegocio(
             400,
             'CONTRASENA_DEBIL',

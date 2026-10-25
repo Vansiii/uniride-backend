@@ -25,6 +25,14 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
     return this.conContexto('app.organizacion_id', organizacionId, fn);
   }
 
+  /** Como `enOrganizacion`, para una transacción ya abierta cuando la organización se conoce dentro de ella (registro, HU-05). */
+  async fijarOrganizacion(
+    tx: Transaccion,
+    organizacionId: string,
+  ): Promise<void> {
+    await tx.$executeRaw`SELECT set_config('app.organizacion_id', ${organizacionId}, true)`;
+  }
+
   /** Contexto de plataforma: RLS deja ver todas las organizaciones. Solo para super admin y tareas del sistema. */
   comoSuperAdmin<T>(fn: (tx: Transaccion) => Promise<T>): Promise<T> {
     return this.conContexto('app.super_admin', 'true', fn);

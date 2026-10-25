@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
@@ -10,10 +9,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { recortar } from '../../comun/validaciones.js';
 import { t } from '../../i18n/t.js';
-
-const recortar = () =>
-  Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
 
 export class CrearOrganizacionDto {
   @ApiProperty({ example: 'UAGRM' })

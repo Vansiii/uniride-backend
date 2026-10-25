@@ -50,6 +50,16 @@ export class CorreosService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Envío síncrono, sin cola (OTP): si falla, lanza y el llamador revierte su operación. */
+  async enviarAhora(
+    destinatario: string,
+    plantilla: string,
+    datos: Record<string, unknown>,
+  ): Promise<void> {
+    this.enviador ??= crearEnviador();
+    await this.enviador.enviar(destinatario, renderizar(plantilla, datos));
+  }
+
   /** Envía los correos vencidos de la cola; devuelve cuántos salieron. */
   async procesarPendientes(): Promise<number> {
     this.enviador ??= crearEnviador();

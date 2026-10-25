@@ -136,6 +136,26 @@ model Invitacion {
   @@map("invitaciones")
 }
 
+// --- HU-05: códigos OTP ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS. Correo en minúsculas; el código solo como HMAC.
+model CodigoOtp {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  correo         String
+  proposito      String
+  hashCodigo     String    @map("hash_codigo")
+  datos          Json
+  venceEn        DateTime  @map("vence_en") @db.Timestamptz(3)
+  intentos       Int       @default(0)
+  bloqueadoHasta DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  usadoEn        DateTime? @map("usado_en") @db.Timestamptz(3)
+  invalidadoEn   DateTime? @map("invalidado_en") @db.Timestamptz(3)
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([correo, proposito, creadoEn])
+  @@map("codigos_otp")
+}
+
 /// Tabla interna del worker de correos: sin organización ni RLS.
 model CorreoSaliente {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
