@@ -18,3 +18,9 @@ export const UsuarioActual = createParamDecorator(
   (_: unknown, contexto: ExecutionContext): UsuarioToken =>
     contexto.switchToHttp().getRequest().usuario,
 );
+
+/** Organización activa ya validada por `OrganizacionGuard`. */
+export const OrganizacionActual = createParamDecorator(
+  (_: unknown, contexto: ExecutionContext): string =>
+    contexto.switchToHttp().getRequest().organizacionId,
+);
