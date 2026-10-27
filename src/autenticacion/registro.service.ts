@@ -6,7 +6,7 @@ import { PrismaService } from '../comun/prisma.service.js';
 import { esContrasenaSegura } from '../comun/validaciones.js';
 import { AutenticacionService, type Sesion } from './autenticacion.service.js';
 import type { RegistroDto } from './dto/registro.dto.js';
-import { OtpService } from './otp.service.js';
+import { OtpService, type PropositoOtp } from './otp.service.js';
 
 /** Lo que espera la confirmación: nunca la contraseña, solo su hash (RN-6). */
 interface DatosRegistro {
@@ -16,14 +16,25 @@ interface DatosRegistro {
   consentimientoEn: string;
 }
 
-const noAfiliada = () =>
+export const noAfiliada = () =>
   new ErrorNegocio(
     422,
     'ORGANIZACION_NO_AFILIADA',
     'autenticacion.registro.organizacion_no_afiliada',
   );
 
-const normalizar = (correo: string) => correo.trim().toLowerCase();
+export const normalizar = (correo: string) => correo.trim().toLowerCase();
+
+/** Organización activa dueña del dominio del correo, o `null` (HU-05; la reutiliza HU-07). */
+export async function organizacionDelCorreo(
+  prisma: PrismaService,
+  correo: string,
+): Promise<string | null> {
+  const dominio = correo.slice(correo.lastIndexOf('@') + 1);
+  const [fila] = await prisma.$queryRaw<{ id: string | null }[]>`
+    SELECT organizacion_por_dominio(${dominio}) AS id`;
+  return fila?.id ?? null;
+}
 
 @Injectable()
 export class RegistroService {
@@ -50,7 +61,7 @@ export class RegistroService {
       );
     const correo = normalizar(dto.correo);
     // CA-8 (A-13): la organización sale solo del dominio; `dto.organizacionId` jamás se lee.
-    const organizacionId = await this.organizacionDe(correo);
+    const organizacionId = await organizacionDelCorreo(this.prisma, correo);
     if (!organizacionId) throw noAfiliada();
     // El hash se calcula también si la cuenta existe: el tiempo de respuesta no la delata (CA-7).
     const hashContrasena = await bcrypt.hash(dto.contrasena, 12);
@@ -69,8 +80,9 @@ export class RegistroService {
     return this.otp.generar(correo, 'registro', datos);
   }
 
-  reenviar(correo: string) {
-    return this.otp.reenviar(normalizar(correo), 'registro');
+  /** También sirve al código de agregar organización (HU-07): la app reutiliza la pantalla Código. */
+  reenviar(correo: string, proposito: PropositoOtp = 'registro') {
+    return this.otp.reenviar(normalizar(correo), proposito);
   }
 
   /** CA-2: en una transacción consume el código y crea la cuenta y la membresía según el modo de la organización. */
@@ -135,12 +147,5 @@ export class RegistroService {
       'movil',
     );
     return { ...sesion, estadoMembresia: alta.estado };
-  }
-
-  private async organizacionDe(correo: string): Promise<string | null> {
-    const dominio = correo.slice(correo.lastIndexOf('@') + 1);
-    const [fila] = await this.prisma.$queryRaw<{ id: string | null }[]>`
-      SELECT organizacion_por_dominio(${dominio}) AS id`;
-    return fila?.id ?? null;
   }
 }

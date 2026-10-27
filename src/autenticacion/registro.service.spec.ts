@@ -120,6 +120,15 @@ describe('RegistroService.registrar', () => {
     await o.servicio.reenviar(' Ana@UAGRM.edu.bo ');
     expect(o.otp.reenviar).toHaveBeenCalledWith('ana@uagrm.edu.bo', 'registro');
   });
+
+  it('reenviar también sirve al código de agregar organización (HU-07)', async () => {
+    const o = crear();
+    await o.servicio.reenviar('ana@uagrm.edu.bo', 'agregar_organizacion');
+    expect(o.otp.reenviar).toHaveBeenCalledWith(
+      'ana@uagrm.edu.bo',
+      'agregar_organizacion',
+    );
+  });
 });
 
 describe('RegistroService.verificar', () => {

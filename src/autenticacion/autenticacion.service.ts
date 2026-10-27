@@ -216,8 +216,17 @@ export class AutenticacionService {
         sesionVenceEn,
       },
     });
-    const tokenAcceso = await this.jwt.signAsync({ sub: usuarioId, org, cli });
+    const tokenAcceso = await this.emitirAcceso(usuarioId, org, cli);
     return { tokenAcceso, tokenRefresco };
+  }
+
+  /** Solo el token de acceso: al cambiar de organización activa el refresco sigue igual (HU-07). */
+  emitirAcceso(
+    usuarioId: string,
+    org: string | null,
+    cli: TipoCliente,
+  ): Promise<string> {
+    return this.jwt.signAsync({ sub: usuarioId, org, cli });
   }
 
   private sesionExpirada() {

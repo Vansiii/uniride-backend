@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import { MembresiaYoDto } from '../../autenticacion/yo.controller.js';
 import { recortar } from '../../comun/validaciones.js';
 
 export const DECISIONES = ['aprobar', 'rechazar'] as const;
@@ -44,4 +53,47 @@ export class DecisionDto {
 export class DecisionRespuestaDto {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty({ enum: ['aprobada', 'rechazada'] }) estado!: string;
+}
+
+// --- HU-07: varias organizaciones ---
+
+export class AgregarOrganizacionDto {
+  @ApiProperty({
+    example: 'ana@empresa.com.bo',
+    description: 'Correo de la otra organización: su dominio la decide',
+  })
+  @recortar()
+  @IsEmail()
+  @MaxLength(254)
+  correo!: string;
+}
+
+export class ConfirmarOrganizacionDto extends AgregarOrganizacionDto {
+  @ApiProperty({ example: '042817', description: '6 dígitos' })
+  @IsString()
+  @Matches(/^\d{6}$/)
+  codigo!: string;
+}
+
+export class MembresiaCreadaDto {
+  @ApiProperty({
+    type: MembresiaYoDto,
+    description:
+      '`aprobada` o `pendiente` según el modo de aprobación de la organización',
+  })
+  membresia!: MembresiaYoDto;
+}
+
+export class OrganizacionActivaDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  organizacionId!: string;
+}
+
+export class TokenAccesoDto {
+  @ApiProperty({
+    description:
+      'Con `org` = la organización elegida. El token de refresco no cambia.',
+  })
+  tokenAcceso!: string;
 }

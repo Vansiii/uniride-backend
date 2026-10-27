@@ -57,11 +57,12 @@ export class ReenviarCodigoDto {
   @ApiProperty() @recortar() @IsEmail() @MaxLength(254) correo!: string;
 
   @ApiProperty({
-    enum: ['registro'],
-    description: 'HU-07 y HU-34 agregan los suyos',
+    enum: ['registro', 'agregar_organizacion'],
+    description:
+      '`agregar_organizacion`: el código de `POST /membresias` (HU-07). HU-34 agrega el suyo',
   })
-  @IsIn(['registro'])
-  proposito!: 'registro';
+  @IsIn(['registro', 'agregar_organizacion'])
+  proposito!: 'registro' | 'agregar_organizacion';
 }
 
 export class RespuestaEnvioCodigoDto {

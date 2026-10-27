@@ -9,7 +9,7 @@ import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 
-class MembresiaYoDto {
+export class MembresiaYoDto {
   @ApiProperty({ format: 'uuid' }) organizacionId!: string;
   @ApiProperty({ description: 'Nombre de la organización' })
   organizacion!: string;
