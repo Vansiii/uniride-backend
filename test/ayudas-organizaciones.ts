@@ -73,6 +73,9 @@ export async function prepararEntorno(): Promise<Entorno> {
     await bd.query(
       `DELETE FROM tokens_refresco WHERE usuario_id IN (${usuarios})`,
     );
+    await bd.query(
+      `DELETE FROM vehiculos WHERE propietario_id IN (${usuarios})`,
+    );
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
   await limpiar();
