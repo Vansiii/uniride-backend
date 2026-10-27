@@ -53,6 +53,10 @@ export async function prepararEntorno(): Promise<Entorno> {
       `DELETE FROM registros_auditoria WHERE entidad = 'codigo_otp' AND entidad_id IN (${codigos})`,
     );
     await bd.query(`DELETE FROM codigos_otp WHERE correo LIKE '${CORREOS}'`);
+    // HU-34: las solicitudes sin cuenta se auditan solo con el dominio.
+    await bd.query(
+      `DELETE FROM registros_auditoria WHERE accion LIKE 'recuperacion.%' AND detalle->>'dominio' LIKE '${CORREOS}'`,
+    );
     await bd.query(
       `DELETE FROM registros_auditoria WHERE organizacion_id IN (${orgs}) OR actor_id IN (${usuarios})`,
     );

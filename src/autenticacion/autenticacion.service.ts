@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
-import { PrismaService } from '../comun/prisma.service.js';
+import { PrismaService, type Transaccion } from '../comun/prisma.service.js';
 
 const MAX_INTENTOS = 5;
 const BLOQUEO_MS = 15 * 60 * 1000;
@@ -193,8 +193,12 @@ export class AutenticacionService {
     });
   }
 
-  private revocarTodas(usuarioId: string) {
-    return this.prisma.tokenRefresco.updateMany({
+  /** Cierra todas las sesiones del usuario; con `tx`, dentro de la transacción del llamador (HU-34). */
+  revocarTodas(
+    usuarioId: string,
+    tx: Transaccion | PrismaService = this.prisma,
+  ) {
+    return tx.tokenRefresco.updateMany({
       where: { usuarioId, revocadoEn: null },
       data: { revocadoEn: new Date() },
     });
