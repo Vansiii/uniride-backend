@@ -50,6 +50,9 @@ export async function prepararEntorno(): Promise<Entorno> {
     );
     await bd.query(`DELETE FROM membresias WHERE organizacion_id IN (${orgs})`);
     await bd.query(
+      `DELETE FROM dominios_organizacion WHERE organizacion_id IN (${orgs})`,
+    );
+    await bd.query(
       `DELETE FROM invitaciones WHERE organizacion_id IN (${orgs})`,
     );
     await bd.query(
@@ -97,6 +100,60 @@ export async function tokenInvitacion(bd: pg.Client, correo: string) {
     [correo],
   );
   return String(rows[0].enlace).split('/').pop() as string;
+}
+
+/** Da de alta la organización y acepta la invitación: devuelve su id, el usuario admin y su token (con `org`). */
+export async function organizacionConAdmin(
+  e: Entorno,
+  superToken: string,
+  sufijo: string,
+) {
+  const cuerpo = alta(sufijo);
+  const r = await e
+    .api()
+    .post('/api/v1/admin/organizaciones')
+    .set({ Authorization: `Bearer ${superToken}` })
+    .send(cuerpo)
+    .expect(201);
+  const token = await tokenInvitacion(e.bd, cuerpo.adminCorreo);
+  const aceptada = await e
+    .api()
+    .post(`/api/v1/invitaciones/${token}/aceptar`)
+    .send({
+      nombreCompleto: 'Admin',
+      contrasena: CONTRASENA,
+      tipoCliente: 'movil',
+    })
+    .expect(200);
+  const { rows } = await e.bd.query(
+    `SELECT id FROM usuarios WHERE correo = $1`,
+    [cuerpo.adminCorreo],
+  );
+  return {
+    id: r.body.id as string,
+    adminId: rows[0].id as string,
+    token: aceptada.body.tokenAcceso as string,
+  };
+}
+
+/** Usuario con membresía en la organización (activa en su próxima sesión); devuelve su token. */
+export async function miembroCon(
+  e: Entorno,
+  organizacionId: string,
+  correo: string,
+  estado: 'aprobada' | 'pendiente' | 'rechazada',
+  rol: 'miembro' | 'admin_organizacion' = 'miembro',
+) {
+  const id = await e.crearUsuario(correo);
+  await e.bd.query(
+    `INSERT INTO membresias (organizacion_id, usuario_id, rol, estado) VALUES ($1, $2, $3, $4)`,
+    [organizacionId, id, rol, estado],
+  );
+  await e.bd.query(
+    `UPDATE usuarios SET ultima_organizacion_id = $1 WHERE id = $2`,
+    [organizacionId, id],
+  );
+  return e.iniciar(correo);
 }
 
 export const alta = (sufijo: string, extra: object = {}) => ({

@@ -14,6 +14,9 @@
   "organizaciones.invitacion.vencida": "La invitación venció o ya fue usada. Pide que te envíen una nueva.",
   "organizaciones.invitacion.ya_aceptada": "El administrador ya aceptó la invitación.",
   "organizaciones.invitacion.contrasena_debil": "La contraseña debe tener al menos 8 caracteres, con letras y números.",
+  "organizaciones.afiliacion.dominio_no_disponible": "Ese dominio no está disponible.",
+  "organizaciones.afiliacion.dominio_invalido": "El dominio no es válido o es un correo público (gmail.com, hotmail.com, outlook.com, yahoo.com o icloud.com).",
+  "organizaciones.afiliacion.minimo_un_dominio": "La organización debe tener al menos un dominio.",
   "notificaciones.invitacion_admin.asunto": "Te invitaron a administrar {organizacion} en UniRide",
   "notificaciones.invitacion_admin.cuerpo": "Hola {nombre},\n\nTe invitaron a administrar {organizacion} en UniRide.\nAcepta la invitación en las próximas 72 horas desde este enlace:\n{enlace}\n\nSi no esperabas este correo, ignóralo."
 }
