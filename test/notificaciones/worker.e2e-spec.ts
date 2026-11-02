@@ -8,17 +8,18 @@ import {
 describe('Worker de correos (e2e)', () => {
   let e: Entorno;
   let correo: string;
+  let correoId: string;
   const fila = async () =>
     (
       await e.bd.query(
-        `SELECT estado, intentos, datos FROM correos_salientes WHERE destinatario = $1`,
-        [correo],
+        `SELECT estado, intentos, datos FROM correos_salientes WHERE id = $1`,
+        [correoId],
       )
     ).rows[0];
   const vencer = () =>
     e.bd.query(
-      `UPDATE correos_salientes SET proximo_intento_en = now() WHERE destinatario = $1`,
-      [correo],
+      `UPDATE correos_salientes SET proximo_intento_en = now() WHERE id = $1`,
+      [correoId],
     );
 
   beforeAll(async () => {
@@ -33,6 +34,12 @@ describe('Worker de correos (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send(cuerpo)
       .expect(201);
+    const { rows } = await e.bd.query(
+      `SELECT id FROM correos_salientes WHERE destinatario = $1 ORDER BY creado_en DESC LIMIT 1`,
+      [correo],
+    );
+    expect(rows[0]).toBeDefined();
+    correoId = rows[0].id;
   });
   afterAll(() => e.cerrar());
 
