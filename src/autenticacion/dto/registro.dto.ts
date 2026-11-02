@@ -57,11 +57,23 @@ export class ReenviarCodigoDto {
   @ApiProperty() @recortar() @IsEmail() @MaxLength(254) correo!: string;
 
   @ApiProperty({
-    enum: ['registro'],
-    description: 'HU-07 y HU-34 agregan los suyos',
+    enum: ['registro', 'agregar_organizacion', 'recuperacion'],
+    description:
+      '`agregar_organizacion`: el código de `POST /membresias` (HU-07); `recuperacion`: el de `recuperar-contrasena` (HU-34)',
   })
-  @IsIn(['registro'])
-  proposito!: 'registro';
+  @IsIn(['registro', 'agregar_organizacion', 'recuperacion'])
+  proposito!: 'registro' | 'agregar_organizacion' | 'recuperacion';
+}
+
+export class RecuperarContrasenaDto {
+  @ApiProperty() @recortar() @IsEmail() @MaxLength(254) correo!: string;
+}
+
+export class RestablecerContrasenaDto extends VerificarOtpDto {
+  @ApiProperty({ description: 'Al menos 8 caracteres, con letras y números' })
+  @IsString()
+  @MaxLength(72)
+  contrasenaNueva!: string;
 }
 
 export class RespuestaEnvioCodigoDto {

@@ -5,6 +5,7 @@ import { MembresiasModule } from './membresias/membresias.module.js';
 import { NotificacionesModule } from './notificaciones/notificaciones.module.js';
 import { OrganizacionesModule } from './organizaciones/organizaciones.module.js';
 import { SaludController } from './salud/salud.controller.js';
+import { VehiculosModule } from './vehiculos/vehiculos.module.js';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { SaludController } from './salud/salud.controller.js';
     AutenticacionModule,
     OrganizacionesModule,
     MembresiasModule,
+    VehiculosModule,
   ],
   controllers: [SaludController],
 })

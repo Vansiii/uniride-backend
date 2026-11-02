@@ -15,8 +15,15 @@ export type PropositoOtp = (typeof PROPOSITOS_OTP)[number];
 /**
  * `aviso`: fila señuelo. Se envía esa plantilla en lugar del código (nadie lo conoce), pero
  * límites, bloqueo y respuestas son los de un código real: así no se revela si el correo tiene cuenta (HU-05 CA-7).
+ * `senuelo`: igual, pero no se envía nada (HU-34 CA-2: correo sin cuenta).
  */
-export type DatosOtp = Record<string, unknown> & { aviso?: string };
+export type DatosOtp = Record<string, unknown> & {
+  aviso?: string;
+  senuelo?: boolean;
+};
+
+/** Van por la cola: una falla del correo no cambia la respuesta ni revela si la cuenta existe (HU-34). */
+const POR_COLA: readonly PropositoOtp[] = ['recuperacion'];
 
 const MINUTO_MS = 60 * 1000;
 const VIGENCIA_MS = 10 * MINUTO_MS;
@@ -54,7 +61,10 @@ export class OtpService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  /** Invalida los códigos anteriores, guarda el nuevo (solo su HMAC) y lo envía en el momento; si el correo falla, no queda nada. */
+  /**
+   * Invalida los códigos anteriores, guarda el nuevo (solo su HMAC) y lo envía en el momento; si el correo falla, no queda nada.
+   * Los propósitos de `POR_COLA` lo encolan en la misma transacción.
+   */
   generar(
     correo: string,
     proposito: PropositoOtp,
@@ -110,24 +120,42 @@ export class OtpService {
             creadoEn: ahora,
           },
         });
-        try {
-          await this.correos.enviarAhora(
-            correo,
-            datos.aviso ?? `otp_${proposito}`,
-            { codigo, minutos: VIGENCIA_MS / MINUTO_MS },
-          );
-        } catch (error) {
-          this.registro.error(`Envío de OTP fallido: ${String(error)}`);
-          throw new ErrorNegocio(
-            503,
-            'CORREO_NO_DISPONIBLE',
-            'autenticacion.registro.correo_no_disponible',
-          );
-        }
+        // La fila señuelo no envía nada: solo iguala límites y respuestas.
+        if (!datos.senuelo)
+          await this.enviar(tx, correo, proposito, datos, codigo);
         return { reenviarEn: proximoEnvio([...recientes, ahora])! };
       },
       { timeout: 20_000 },
     );
+  }
+
+  private async enviar(
+    tx: Transaccion,
+    correo: string,
+    proposito: PropositoOtp,
+    datos: DatosOtp,
+    codigo: string,
+  ): Promise<void> {
+    const plantilla = datos.aviso ?? `otp_${proposito}`;
+    const variables = { codigo, minutos: VIGENCIA_MS / MINUTO_MS };
+    if (POR_COLA.includes(proposito)) {
+      await this.correos.encolar(tx, {
+        destinatario: correo,
+        plantilla,
+        datos: variables,
+      });
+      return;
+    }
+    try {
+      await this.correos.enviarAhora(correo, plantilla, variables);
+    } catch (error) {
+      this.registro.error(`Envío de OTP fallido: ${String(error)}`);
+      throw new ErrorNegocio(
+        503,
+        'CORREO_NO_DISPONIBLE',
+        'autenticacion.registro.correo_no_disponible',
+      );
+    }
   }
 
   /** CA-6: otro código con los mismos datos. Sin código pendiente responde igual y no envía nada (no revela si existe). */
@@ -169,7 +197,8 @@ export class OtpService {
     const datos = fila.datos as DatosOtp;
     if (
       !coinciden(fila.hashCodigo, hmacDe(correo, proposito, codigo)) ||
-      datos.aviso
+      datos.aviso ||
+      datos.senuelo
     ) {
       const hasta = await this.registrarFallo(fila.id);
       throw hasta ? bloqueado(hasta) : invalido();

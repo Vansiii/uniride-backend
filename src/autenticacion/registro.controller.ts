@@ -103,11 +103,11 @@ export class RegistroController {
   @ApiAcceptedResponse({
     type: RespuestaEnvioCodigoDto,
     description:
-      'El código anterior deja de servir. Sin registro pendiente responde igual y no envía nada.',
+      'El código anterior deja de servir. Sin código pendiente para ese propósito responde igual y no envía nada. Con `recuperacion` el código sale por la cola (nunca 503).',
   })
   @ApiTooManyRequestsResponse(LIMITE)
   @ApiServiceUnavailableResponse(SIN_CORREO)
   reenviar(@Body() dto: ReenviarCodigoDto) {
-    return this.servicio.reenviar(dto.correo);
+    return this.servicio.reenviar(dto.correo, dto.proposito);
   }
 }

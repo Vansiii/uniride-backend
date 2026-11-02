@@ -10,9 +10,9 @@ const AHORA = new Date('2026-10-24T12:00:00.000Z');
 const MIN = 60_000;
 const hace = (ms: number) => new Date(AHORA.getTime() - ms);
 const en = (ms: number) => new Date(AHORA.getTime() + ms);
-const hmac = (codigo: string) =>
+const hmac = (codigo: string, proposito = 'registro') =>
   createHmac('sha256', 'secreto-unitario')
-    .update(`registro:${CORREO}:${codigo}`)
+    .update(`${proposito}:${CORREO}:${codigo}`)
     .digest('hex');
 
 function crear() {
@@ -32,7 +32,10 @@ function crear() {
       update: vi.fn().mockResolvedValue({ intentos: 1 }),
     },
   };
-  const correos = { enviarAhora: vi.fn().mockResolvedValue(undefined) };
+  const correos = {
+    enviarAhora: vi.fn().mockResolvedValue(undefined),
+    encolar: vi.fn().mockResolvedValue(undefined),
+  };
   const auditoria = { registrar: vi.fn().mockResolvedValue(undefined) };
   const servicio = new OtpService(
     prisma as unknown as PrismaService,
@@ -53,11 +56,15 @@ const fila = (extra: object = {}) => ({
   ...extra,
 });
 
-const verificar = (o: ReturnType<typeof crear>, codigo = '123456') =>
+const verificar = (
+  o: ReturnType<typeof crear>,
+  codigo = '123456',
+  proposito: 'registro' | 'recuperacion' = 'registro',
+) =>
   o.servicio.verificar(
     o.tx as unknown as Transaccion,
     CORREO,
-    'registro',
+    proposito,
     codigo,
   );
 
@@ -359,6 +366,124 @@ describe('OtpService.verificar', () => {
       .digest('hex');
     o.tx.codigoOtp.findFirst.mockResolvedValue(fila({ hashCodigo: deOtro }));
     await expect(verificar(o)).rejects.toMatchObject({
+      codigo: 'OTP_INVALIDO',
+    });
+  });
+});
+
+describe('OtpService · propósito recuperacion (HU-34)', () => {
+  const filaRecuperacion = (extra: object = {}) =>
+    fila({
+      hashCodigo: hmac('123456', 'recuperacion'),
+      datos: { usuarioId: 'u-1' },
+      ...extra,
+    });
+
+  it('CA-1: el código va por la cola, en la misma transacción, no en el momento', async () => {
+    const o = crear();
+    const r = await o.servicio.generar(CORREO, 'recuperacion', {
+      usuarioId: 'u-1',
+    });
+    expect(r).toEqual({ reenviarEn: en(MIN) });
+    expect(o.correos.enviarAhora).not.toHaveBeenCalled();
+    const [tx, correo] = o.correos.encolar.mock.calls[0] as [
+      unknown,
+      { destinatario: string; plantilla: string; datos: { codigo: string } },
+    ];
+    expect(tx).toBe(o.tx);
+    expect(correo).toMatchObject({
+      destinatario: CORREO,
+      plantilla: 'otp_recuperacion',
+      datos: { minutos: 10 },
+    });
+    expect(correo.datos.codigo).toMatch(/^\d{6}$/);
+    expect(o.tx.codigoOtp.create.mock.calls[0][0].data.hashCodigo).toBe(
+      hmac(correo.datos.codigo, 'recuperacion'),
+    );
+  });
+
+  it('CA-2: la fila señuelo se guarda igual que una real pero no envía nada', async () => {
+    const o = crear();
+    const r = await o.servicio.generar(CORREO, 'recuperacion', {
+      senuelo: true,
+    });
+    expect(r).toEqual({ reenviarEn: en(MIN) });
+    expect(o.tx.codigoOtp.create.mock.calls[0][0].data).toMatchObject({
+      proposito: 'recuperacion',
+      datos: { senuelo: true },
+      venceEn: en(10 * MIN),
+    });
+    expect(o.correos.encolar).not.toHaveBeenCalled();
+    expect(o.correos.enviarAhora).not.toHaveBeenCalled();
+  });
+
+  it('CA-2: los límites de la fila señuelo son los de una real', async () => {
+    const o = crear();
+    o.tx.codigoOtp.findMany.mockResolvedValue([{ creadoEn: hace(20_000) }]);
+    await expect(
+      o.servicio.generar(CORREO, 'recuperacion', { senuelo: true }),
+    ).rejects.toMatchObject({ codigo: 'OTP_LIMITE_REENVIO' });
+    expect(o.tx.codigoOtp.create).not.toHaveBeenCalled();
+  });
+
+  it('CA-2: la fila señuelo nunca valida, ni con el código correcto, y cuenta el error', async () => {
+    const o = crear();
+    o.tx.codigoOtp.findFirst.mockResolvedValue(
+      filaRecuperacion({ datos: { senuelo: true } }),
+    );
+    await expect(verificar(o, '123456', 'recuperacion')).rejects.toMatchObject({
+      codigo: 'OTP_INVALIDO',
+    });
+    expect(o.prisma.codigoOtp.update).toHaveBeenCalledWith({
+      where: { id: 'otp-1' },
+      data: { intentos: { increment: 1 } },
+    });
+    expect(o.tx.codigoOtp.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('CA-4: el quinto error seguido bloquea 15 minutos, con cuenta o señuelo', async () => {
+    for (const datos of [{ usuarioId: 'u-1' }, { senuelo: true }]) {
+      const o = crear();
+      o.tx.codigoOtp.findFirst.mockResolvedValue(
+        filaRecuperacion({ intentos: 4, datos }),
+      );
+      o.prisma.codigoOtp.update.mockResolvedValueOnce({ intentos: 5 });
+      const error = await verificar(o, '654321', 'recuperacion').catch(
+        (e) => e,
+      );
+      expect(respuestaDe(error)).toMatchObject({
+        estado: 429,
+        codigo: 'OTP_BLOQUEADO',
+        reintentarEn: en(15 * MIN).toISOString(),
+      });
+    }
+  });
+
+  it('CA-5: vencido → OTP_VENCIDO (410); ya usado → OTP_INVALIDO', async () => {
+    const o = crear();
+    o.tx.codigoOtp.findFirst.mockResolvedValue(
+      filaRecuperacion({ venceEn: hace(1) }),
+    );
+    expect(
+      respuestaDe(await verificar(o, '123456', 'recuperacion').catch((e) => e)),
+    ).toMatchObject({ estado: 410, codigo: 'OTP_VENCIDO' });
+    o.tx.codigoOtp.findFirst.mockResolvedValue(
+      filaRecuperacion({ usadoEn: hace(MIN) }),
+    );
+    expect(
+      respuestaDe(await verificar(o, '123456', 'recuperacion').catch((e) => e)),
+    ).toMatchObject({ estado: 400, codigo: 'OTP_INVALIDO' });
+  });
+
+  it('CA-3: código correcto → devuelve el usuario y lo consume', async () => {
+    const o = crear();
+    o.tx.codigoOtp.findFirst.mockResolvedValue(filaRecuperacion());
+    await expect(verificar(o, '123456', 'recuperacion')).resolves.toEqual({
+      usuarioId: 'u-1',
+    });
+    // El código de registro no sirve para recuperar: el HMAC incluye el propósito.
+    o.tx.codigoOtp.findFirst.mockResolvedValue(fila());
+    await expect(verificar(o, '123456', 'recuperacion')).rejects.toMatchObject({
       codigo: 'OTP_INVALIDO',
     });
   });

@@ -29,6 +29,7 @@ model Usuario {
 
   tokensRefresco TokenRefresco[]
   membresias     Membresia[]
+  vehiculo       Vehiculo?
 
   @@map("usuarios")
 }
@@ -154,6 +155,26 @@ model CodigoOtp {
 
   @@index([correo, proposito, creadoEn])
   @@map("codigos_otp")
+}
+
+// --- HU-11: vehículos ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. `claveS3Foto` nunca sale de la API (D-20).
+model Vehiculo {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propietarioId        String   @unique @map("propietario_id") @db.Uuid
+  placa                String   @unique
+  marca                String
+  modelo               String
+  color                String
+  capacidad            Int
+  claveS3Foto          String   @map("clave_s3_foto")
+  consentimientoFotoEn DateTime @map("consentimiento_foto_en") @db.Timestamptz(3)
+  creadoEn             DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  propietario Usuario @relation(fields: [propietarioId], references: [id])
+
+  @@map("vehiculos")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.

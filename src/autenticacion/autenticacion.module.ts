@@ -5,6 +5,8 @@ import { JwtGuard } from '../comun/jwt.guard.js';
 import { AutenticacionController } from './autenticacion.controller.js';
 import { AutenticacionService } from './autenticacion.service.js';
 import { OtpService } from './otp.service.js';
+import { RecuperacionController } from './recuperacion.controller.js';
+import { RecuperacionService } from './recuperacion.service.js';
 import { RegistroController } from './registro.controller.js';
 import { RegistroService } from './registro.service.js';
 import { YoController } from './yo.controller.js';
@@ -20,11 +22,17 @@ import { YoController } from './yo.controller.js';
       }),
     }),
   ],
-  controllers: [AutenticacionController, RegistroController, YoController],
+  controllers: [
+    AutenticacionController,
+    RegistroController,
+    RecuperacionController,
+    YoController,
+  ],
   exports: [AutenticacionService, OtpService],
   providers: [
     AutenticacionService,
     OtpService,
+    RecuperacionService,
     RegistroService,
     { provide: APP_GUARD, useClass: JwtGuard },
   ],
