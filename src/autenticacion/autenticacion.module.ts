@@ -4,6 +4,9 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtGuard } from '../comun/jwt.guard.js';
 import { AutenticacionController } from './autenticacion.controller.js';
 import { AutenticacionService } from './autenticacion.service.js';
+import { OtpService } from './otp.service.js';
+import { RegistroController } from './registro.controller.js';
+import { RegistroService } from './registro.service.js';
 import { YoController } from './yo.controller.js';
 
 @Module({
@@ -17,8 +20,13 @@ import { YoController } from './yo.controller.js';
       }),
     }),
   ],
-  controllers: [AutenticacionController, YoController],
-  exports: [AutenticacionService],
-  providers: [AutenticacionService, { provide: APP_GUARD, useClass: JwtGuard }],
+  controllers: [AutenticacionController, RegistroController, YoController],
+  exports: [AutenticacionService, OtpService],
+  providers: [
+    AutenticacionService,
+    OtpService,
+    RegistroService,
+    { provide: APP_GUARD, useClass: JwtGuard },
+  ],
 })
 export class AutenticacionModule {}
