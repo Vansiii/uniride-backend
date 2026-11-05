@@ -37,7 +37,7 @@ export async function prepararEntorno(): Promise<Entorno> {
   const modulo = await Test.createTestingModule({
     imports: [AplicacionModule],
   }).compile();
-  const app = modulo.createNestApplication();
+  const app = modulo.createNestApplication({ rawBody: true });
   configurarAplicacion(app);
   await app.init();
   const api = () => request(app.getHttpServer());
@@ -75,6 +75,9 @@ export async function prepararEntorno(): Promise<Entorno> {
     );
     await bd.query(
       `DELETE FROM vehiculos WHERE propietario_id IN (${usuarios})`,
+    );
+    await bd.query(
+      `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
     );
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
