@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, type Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
@@ -26,7 +26,10 @@ export interface Entorno {
   cerrar: () => Promise<void>;
 }
 
-export async function prepararEntorno(): Promise<Entorno> {
+/** `modulosExtra`: módulos solo de prueba (p. ej. un controlador protegido con un guard) que se suman a la aplicación. */
+export async function prepararEntorno(
+  modulosExtra: Type<unknown>[] = [],
+): Promise<Entorno> {
   process.env.JWT_ACCESO_SECRETO ??= 'secreto-de-pruebas';
   process.env.CORREO_MODO = 'consola';
   process.env.OTP_SECRETO ||= 'secreto-otp-de-pruebas';
@@ -35,7 +38,7 @@ export async function prepararEntorno(): Promise<Entorno> {
   });
   await bd.connect();
   const modulo = await Test.createTestingModule({
-    imports: [AplicacionModule],
+    imports: [AplicacionModule, ...modulosExtra],
   }).compile();
   const app = modulo.createNestApplication({ rawBody: true });
   configurarAplicacion(app);

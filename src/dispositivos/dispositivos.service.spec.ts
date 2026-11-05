@@ -171,13 +171,11 @@ describe('DispositivosService.vincular', () => {
 
   it('CA-2 / A-03: dispositivo no íntegro, 422 sin guardar nada y con motivo solo en auditoría', async () => {
     const o = crear({
-      verificar: vi
-        .fn()
-        .mockResolvedValue({
-          integro: false,
-          veredicto: 'NO_INTEGRO',
-          motivo: 'nonce',
-        }),
+      verificar: vi.fn().mockResolvedValue({
+        integro: false,
+        veredicto: 'NO_INTEGRO',
+        motivo: 'nonce',
+      }),
     });
     const { desafio } = await o.servicio.emitirDesafio(USUARIO);
     const error = await o.servicio
