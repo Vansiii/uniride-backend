@@ -4,6 +4,8 @@
   "comun.errores.no_autenticado": "Debes iniciar sesión.",
   "comun.errores.no_autorizado": "No tienes permiso para realizar esta acción.",
   "comun.errores.no_encontrado": "No se encontró lo que buscas.",
+  "comun.errores.firma_invalida": "No pudimos comprobar que la petición viene de tu teléfono vinculado.",
+  "comun.errores.peticion_expirada": "La petición expiró o ya fue usada. Inténtalo de nuevo.",
   "autenticacion.sesion.credenciales_invalidas": "Correo o contraseña incorrectos.",
   "autenticacion.sesion.bloqueada": "Demasiados intentos. Vuelve a intentarlo más tarde.",
   "autenticacion.sesion.expirada": "Tu sesión expiró. Inicia sesión de nuevo.",
@@ -52,5 +54,11 @@
   "notificaciones.membresia_aprobada.cuerpo": "Hola {nombre},\n\nEl administrador de {organizacion} aprobó tu solicitud de ingreso a UniRide.\nPara viajar, todavía debes verificar tu identidad y vincular tu teléfono desde la app.",
   "notificaciones.membresia_rechazada.asunto": "Tu solicitud para {organizacion} en UniRide no fue aprobada",
   "notificaciones.membresia_rechazada.cuerpo": "Hola {nombre},\n\nEl administrador de {organizacion} rechazó tu solicitud de ingreso a UniRide.\n{motivo}\nSi crees que es un error, comunícate con el administrador de tu organización.",
-  "notificaciones.membresia_rechazada.motivo": "Motivo: {motivo}\n"
+  "notificaciones.membresia_rechazada.motivo": "Motivo: {motivo}\n",
+  "dispositivo.vinculacion.no_integro": "Tu teléfono no cumple los requisitos de seguridad: debe ser un dispositivo físico, sin root y con la app original.",
+  "dispositivo.vinculacion.ya_vinculado": "Tu cuenta ya tiene un teléfono vinculado.",
+  "dispositivo.vinculacion.desafio_invalido": "El desafío venció o ya fue usado. Inicia la vinculación de nuevo.",
+  "dispositivo.vinculacion.llave_invalida": "La llave del teléfono no es válida.",
+  "dispositivo.vinculacion.servicio_no_disponible": "No pudimos comprobar tu teléfono en este momento. Inténtalo de nuevo más tarde.",
+  "dispositivo.autenticacion.cancelada": "Cancelaste la autenticación biométrica; la acción no se realizó."
 }
