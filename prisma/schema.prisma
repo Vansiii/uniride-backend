@@ -30,6 +30,7 @@ model Usuario {
   tokensRefresco TokenRefresco[]
   membresias     Membresia[]
   vehiculo       Vehiculo?
+  identidad      Identidad?
 
   @@map("usuarios")
 }
@@ -175,6 +176,30 @@ model Vehiculo {
   propietario Usuario @relation(fields: [propietarioId], references: [id])
 
   @@map("vehiculos")
+}
+
+// --- HU-08: verificación de identidad ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Fuente de verdad del estado de identidad
+/// (la columna `usuarios.estado_identidad` no se usa). `documentoHash`, `claveS3Carnet` y `faceIdColeccion` nunca salen de la API.
+/// Se crea en el primer intento y solo se llenan hash, clave y face id al quedar verificada (así un intento fallido no reserva un documento ajeno).
+model Identidad {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String    @unique @map("usuario_id") @db.Uuid
+  documentoHash    String?   @unique @map("documento_hash")
+  estado           String    @default("no_verificada")
+  similitudFacial  Decimal?  @map("similitud_facial") @db.Decimal(5, 2)
+  claveS3Carnet    String?   @map("clave_s3_carnet")
+  faceIdColeccion  String?   @map("face_id_coleccion")
+  intentosFallidos Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta   DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  consentimientoEn DateTime  @map("consentimiento_en") @db.Timestamptz(3)
+  verificadoEn     DateTime? @map("verificado_en") @db.Timestamptz(3)
+  creadoEn         DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@map("identidades")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.
