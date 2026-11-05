@@ -33,6 +33,7 @@ export async function prepararEntorno(
   process.env.JWT_ACCESO_SECRETO ??= 'secreto-de-pruebas';
   process.env.CORREO_MODO = 'consola';
   process.env.OTP_SECRETO ||= 'secreto-otp-de-pruebas';
+  process.env.IDENTIDAD_SECRETO ||= 'secreto-identidad-de-pruebas';
   const bd = new pg.Client({
     connectionString: process.env.DATABASE_URL_MIGRACIONES,
   });
@@ -79,6 +80,7 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM vehiculos WHERE propietario_id IN (${usuarios})`,
     );
+    await bd.query(`DELETE FROM identidades WHERE usuario_id IN (${usuarios})`);
     await bd.query(
       `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
     );
