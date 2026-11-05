@@ -12,10 +12,8 @@ import type { MotorFacial, ResultadoLiveness } from './motor-facial.js';
  * - Similitud: 98 si ambos rostros tienen el mismo id, 20 si no.
  */
 export class MotorFacialSimulado implements MotorFacial {
-  private readonly indexados = new Map<
-    string,
-    { usuarioId: string; rostro: string }
-  >();
+  /** Visible para las pruebas. */
+  readonly indexados = new Map<string, { usuarioId: string; rostro: string }>();
 
   async crearSesionLiveness(): Promise<string> {
     return `sim-${randomUUID()}`;

@@ -334,6 +334,18 @@ describe('IdentidadService.verificar', () => {
     expect(intentoContado(c)).toBe(true);
   });
 
+  it('A-02 en paralelo: si tras indexar aparece el mismo rostro de otra cuenta → 409 ROSTRO_DUPLICADO, se deshace todo y cuenta intento', async () => {
+    const c = crear();
+    c.buscar.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await rechazo(c, [409, 'ROSTRO_DUPLICADO']);
+    const [clave] = c.almacenamiento.subir.mock.calls[0];
+    expect(c.almacenamiento.borrar).toHaveBeenCalledWith(clave);
+    expect(c.desindexar).toHaveBeenCalledTimes(1);
+    expect(c.motor.indexados.size).toBe(0);
+    expect(c.auditoria.registrar).toHaveBeenCalledTimes(1);
+    expect(intentoContado(c)).toBe(true);
+  });
+
   it('CA-9: el tercer fallo consecutivo bloquea 24 h y responde 429 con la fecha', async () => {
     const c = crear({ tras: { intentosFallidos: 3 } });
     c.liveness.mockResolvedValue({ exitosa: false, confianza: 1 });

@@ -209,6 +209,12 @@ export class IdentidadService implements OnModuleInit {
     }
 
     try {
+      // Dos cuentas con el mismo rostro a la vez pasan la búsqueda previa sin verse: tras indexar, la que
+      // indexó después sí ve a la otra. Nunca quedan las dos verificadas (A-02); como mucho se rechazan ambas.
+      if (
+        await this.motor((m) => m.buscarRostroDuplicado(foto.buffer, usuarioId))
+      )
+        throw await this.rechazar(usuarioId, 'rostro_duplicado');
       return await this.guardar(usuarioId, {
         documentoHash,
         similitud,
