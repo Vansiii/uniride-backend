@@ -7,5 +7,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    setupFiles: ['./test/entorno.ts'],
+    fileParallelism: false,
   },
 });

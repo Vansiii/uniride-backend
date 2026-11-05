@@ -10,3 +10,188 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// --- HU-06: cuentas, sesiones y auditoría ---
+
+/// Dato personal (D-07): sin organizacion_id, se protege por dueño.
+model Usuario {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  correo                String
+  hashContrasena        String    @map("hash_contrasena")
+  nombreCompleto        String    @map("nombre_completo")
+  rolPlataforma         String?   @map("rol_plataforma")
+  estadoIdentidad       String    @default("no_verificada") @map("estado_identidad")
+  intentosFallidos      Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta        DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  ultimaOrganizacionId  String?   @map("ultima_organizacion_id") @db.Uuid
+  consentimientoDatosEn DateTime? @map("consentimiento_datos_en") @db.Timestamptz(3)
+  creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  tokensRefresco TokenRefresco[]
+  membresias     Membresia[]
+  vehiculo       Vehiculo?
+
+  @@map("usuarios")
+}
+
+model TokenRefresco {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId     String    @map("usuario_id") @db.Uuid
+  hashToken     String    @unique @map("hash_token")
+  tipoCliente   String    @map("tipo_cliente")
+  venceEn       DateTime  @map("vence_en") @db.Timestamptz(3)
+  sesionVenceEn DateTime  @map("sesion_vence_en") @db.Timestamptz(3)
+  revocadoEn    DateTime? @map("revocado_en") @db.Timestamptz(3)
+  creadoEn      DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@map("tokens_refresco")
+}
+
+/// Solo inserción. `organizacion_id` sin FK: la auditoría también guarda eventos sin organización.
+model RegistroAuditoria {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String?  @map("organizacion_id") @db.Uuid
+  actorId        String?  @map("actor_id") @db.Uuid
+  accion         String
+  entidad        String
+  entidadId      String?  @map("entidad_id")
+  resultado      String
+  detalle        Json?
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([organizacionId])
+  @@map("registros_auditoria")
+}
+
+// --- HU-01: organizaciones, membresías, invitaciones y cola de correos ---
+
+model Organizacion {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre            String
+  nombreNormalizado String   @unique @map("nombre_normalizado")
+  tipo              String
+  modoAprobacion    String   @default("manual") @map("modo_aprobacion")
+  precioMaximoUrc   Decimal  @map("precio_maximo_urc") @db.Decimal(12, 2)
+  estado            String   @default("activa")
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  membresias   Membresia[]
+  invitaciones Invitacion[]
+  dominios     DominioOrganizacion[]
+
+  @@map("organizaciones")
+}
+
+// --- HU-02: reglas de afiliación ---
+
+/// Dominio en minúsculas y sin `@`; UNIQUE en toda la plataforma (RN-2).
+model DominioOrganizacion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  dominio        String   @unique
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+
+  @@index([organizacionId])
+  @@map("dominios_organizacion")
+}
+
+model Membresia {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String    @map("organizacion_id") @db.Uuid
+  usuarioId           String    @map("usuario_id") @db.Uuid
+  rol                 String
+  estado              String
+  correoInstitucional String?   @map("correo_institucional")
+  decididoPor         String?   @map("decidido_por") @db.Uuid
+  decididoEn          DateTime? @map("decidido_en") @db.Timestamptz(3)
+  motivo              String?
+  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id])
+
+  @@unique([organizacionId, usuarioId])
+  @@map("membresias")
+}
+
+model Invitacion {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String    @map("organizacion_id") @db.Uuid
+  correo         String
+  nombre         String
+  hashToken      String    @unique @map("hash_token")
+  venceEn        DateTime  @map("vence_en") @db.Timestamptz(3)
+  usadaEn        DateTime? @map("usada_en") @db.Timestamptz(3)
+  reemplazadaEn  DateTime? @map("reemplazada_en") @db.Timestamptz(3)
+  creadoPor      String    @map("creado_por") @db.Uuid
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+
+  @@index([organizacionId])
+  @@map("invitaciones")
+}
+
+// --- HU-05: códigos OTP ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS. Correo en minúsculas; el código solo como HMAC.
+model CodigoOtp {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  correo         String
+  proposito      String
+  hashCodigo     String    @map("hash_codigo")
+  datos          Json
+  venceEn        DateTime  @map("vence_en") @db.Timestamptz(3)
+  intentos       Int       @default(0)
+  bloqueadoHasta DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  usadoEn        DateTime? @map("usado_en") @db.Timestamptz(3)
+  invalidadoEn   DateTime? @map("invalidado_en") @db.Timestamptz(3)
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([correo, proposito, creadoEn])
+  @@map("codigos_otp")
+}
+
+// --- HU-11: vehículos ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. `claveS3Foto` nunca sale de la API (D-20).
+model Vehiculo {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propietarioId        String   @unique @map("propietario_id") @db.Uuid
+  placa                String   @unique
+  marca                String
+  modelo               String
+  color                String
+  capacidad            Int
+  claveS3Foto          String   @map("clave_s3_foto")
+  consentimientoFotoEn DateTime @map("consentimiento_foto_en") @db.Timestamptz(3)
+  creadoEn             DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  propietario Usuario @relation(fields: [propietarioId], references: [id])
+
+  @@map("vehiculos")
+}
+
+/// Tabla interna del worker de correos: sin organización ni RLS.
+model CorreoSaliente {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  destinatario     String
+  plantilla        String
+  datos            Json
+  estado           String   @default("pendiente")
+  intentos         Int      @default(0)
+  proximoIntentoEn DateTime @default(now()) @map("proximo_intento_en") @db.Timestamptz(3)
+  ultimoError      String?  @map("ultimo_error")
+  referenciaTipo   String?  @map("referencia_tipo")
+  referenciaId     String?  @map("referencia_id") @db.Uuid
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([estado, proximoIntentoEn])
+  @@index([referenciaTipo, referenciaId])
+  @@map("correos_salientes")
+}
