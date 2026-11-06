@@ -25,6 +25,7 @@ model Usuario {
   bloqueadoHasta        DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
   ultimaOrganizacionId  String?   @map("ultima_organizacion_id") @db.Uuid
   consentimientoDatosEn DateTime? @map("consentimiento_datos_en") @db.Timestamptz(3)
+  suspendidaEn          DateTime? @map("suspendida_en") @db.Timestamptz(3)
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   tokensRefresco TokenRefresco[]
@@ -32,6 +33,7 @@ model Usuario {
   vehiculo       Vehiculo?
   identidad      Identidad?
   dispositivo    Dispositivo?
+  billetera      Billetera?
 
   @@map("usuarios")
 }
@@ -221,6 +223,23 @@ model Dispositivo {
   usuario Usuario @relation(fields: [usuarioId], references: [id])
 
   @@map("dispositivos")
+}
+
+// --- HU-12: billetera ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Una billetera por usuario (A-02).
+/// `llaveCustodiaRef` guarda la llave privada solo cifrada (A-12) y nunca sale en respuestas, logs ni auditoría.
+model Billetera {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String   @unique @map("usuario_id") @db.Uuid
+  direccion        String   @unique
+  llaveCustodiaRef String   @map("llave_custodia_ref")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@map("billeteras")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.
