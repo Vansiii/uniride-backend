@@ -84,6 +84,11 @@ describe('crearCadena', () => {
     ).toThrow('DIRECCION_TOKEN_URC');
   });
 
+  it('sin DIRECCION_TOKEN_URC se comporta igual que vacía', () => {
+    const { DIRECCION_TOKEN_URC: _, ...sinToken } = valido;
+    expect(crearCadena(sinToken)).toBeInstanceOf(CadenaReal);
+  });
+
   it('DIRECCION_TOKEN_URC vacía: en producción no arranca; en desarrollo arranca y cada lectura falla', async () => {
     const vacia = { ...valido, DIRECCION_TOKEN_URC: '' };
     expect(() => crearCadena({ ...vacia, NODE_ENV: 'production' })).toThrow(

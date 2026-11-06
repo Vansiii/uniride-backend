@@ -54,6 +54,11 @@ describe('custodia de llaves (A-12)', () => {
     ).toThrow();
   });
 
+  it('sin WALLET_ENCRYPTION_KEY falla claro', () => {
+    vi.stubEnv('WALLET_ENCRYPTION_KEY', undefined);
+    expect(() => claveCustodia()).toThrow('WALLET_ENCRYPTION_KEY');
+  });
+
   it.each([
     ['vacía', ''],
     ['corta', 'ab'.repeat(16)],

@@ -258,6 +258,19 @@ describe('BilleteraService', () => {
       expect(registrado()).not.toContain('clave-secreta-rpc');
     });
 
+    it.each([
+      ['sin código usa su nombre', new TypeError('dato sensible'), 'TypeError'],
+      ['vacío usa un genérico', null, 'Error'],
+    ])('un error %s, sin su mensaje', async (_, error, motivo) => {
+      const c = crear();
+      c.billetera.findUnique.mockRejectedValue(error);
+      await c.servicio.crearAutomatica(USUARIO);
+      expect(c.auditoria.registrar.mock.calls[0][0].detalle).toEqual({
+        motivo,
+      });
+      expect(registrado()).not.toContain('dato sensible');
+    });
+
     it('nunca rechaza, ni con la BD caída al auditar', async () => {
       const c = crear();
       const aviso = vi
