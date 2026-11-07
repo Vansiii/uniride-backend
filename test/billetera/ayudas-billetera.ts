@@ -4,8 +4,9 @@ import {
   BlockchainService,
   CadenaSimulada,
 } from '../../src/blockchain/blockchain.service.js';
+import { TrabajosOnchainService } from '../../src/blockchain/trabajos-onchain.service.js';
 import { mensajeCanonico } from '../../src/comun/firma-dispositivo.guard.js';
-import type { Entorno } from '../ayudas-organizaciones.js';
+import { DOMINIO, type Entorno } from '../ayudas-organizaciones.js';
 
 export const URC = 10n ** 18n;
 
@@ -14,8 +15,11 @@ export class CadenaControlable extends CadenaSimulada {
   fallar = false;
   colgar = false;
   explorador: string | null = null;
+  /** El nodo acuña pero la respuesta no llega; se apaga sola tras una vez. */
+  perderRespuesta = false;
   lecturas = 0;
-  saldos = new Map<string, bigint>();
+  acunaciones = 0;
+  override saldos = new Map<string, bigint>();
 
   override async leerSaldo(direccion?: string): Promise<bigint> {
     this.lecturas++;
@@ -28,6 +32,25 @@ export class CadenaControlable extends CadenaSimulada {
         },
       );
     return this.saldos.get(direccion ?? '') ?? 0n;
+  }
+
+  override async acunarRecarga(
+    destino: string,
+    monto: bigint,
+    idOrden: string,
+  ): Promise<string> {
+    this.acunaciones++;
+    if (this.fallar)
+      throw Object.assign(
+        new Error('nodo caído en https://nodo.test/clave-rpc'),
+        { code: 'SERVER_ERROR' },
+      );
+    const hash = await super.acunarRecarga(destino, monto, idOrden);
+    if (this.perderRespuesta) {
+      this.perderRespuesta = false;
+      throw Object.assign(new Error('sin respuesta'), { code: 'TIMEOUT' });
+    }
+    return hash;
   }
 
   override exploradorUrl(): string | null {
@@ -67,6 +90,7 @@ export const RUTA = '/api/v1/billetera';
 export const RUTA_MIA = `${RUTA}/mia`;
 export const RUTA_SALDO = `${RUTA}/saldo`;
 export const RUTA_MOVIMIENTOS = `${RUTA}/movimientos`;
+export const RUTA_RECARGAS = `${RUTA}/recargas`;
 export const HASH = `0x${'ab'.repeat(32)}`;
 
 /** Cliente de prueba de los endpoints de billetera, con la cadena controlable reiniciada por prueba. */
@@ -174,7 +198,66 @@ export function ayudasBilletera(e: () => Entorno) {
     );
     return rows[0].id as string;
   };
+  /** Persona lista para recargar: verificada, con billetera y dispositivo. */
+  const recargador = async (correo: string) => {
+    const p = await persona(correo);
+    return {
+      ...p,
+      ...(await billetera(p.id)),
+      dispositivo: await vincular(p.id),
+    };
+  };
+  const crearRecarga = (token: string, monto: unknown = 50) =>
+    e().api().post(RUTA_RECARGAS).set(conToken(token)).send({ monto });
+  const confirmarRecarga = (token: string, id: string, d: Dispositivo) => {
+    const ruta = `${RUTA_RECARGAS}/${id}/confirmar`;
+    return e()
+      .api()
+      .post(ruta)
+      .set(conToken(token))
+      .set(firmar('POST', ruta, d));
+  };
+  const consultarRecarga = (token: string, id: string) =>
+    e().api().get(`${RUTA_RECARGAS}/${id}`).set(conToken(token));
+  const worker = () => e().app.get(TrabajosOnchainService, { strict: false });
+  /** Adelanta el reintento, como si la espera ya hubiera pasado. */
+  const vencerEspera = (ordenId: string) =>
+    e().bd.query(
+      `UPDATE trabajos_onchain SET proximo_intento_en = now()
+       WHERE movimiento_id = (SELECT id FROM movimientos_billetera WHERE clave_idempotencia = $1)`,
+      [`recarga:${ordenId}`],
+    );
+  /** Quita lo que dejó la prueba anterior: el worker procesa toda la cola, no solo la orden de la prueba. */
+  const vaciarCola = () =>
+    e().bd.query(
+      `DELETE FROM trabajos_onchain WHERE movimiento_id IN (
+         SELECT m.id FROM movimientos_billetera m
+         JOIN billeteras b ON b.id = m.billetera_id
+         JOIN usuarios u ON u.id = b.usuario_id
+         WHERE u.correo LIKE '%${DOMINIO.slice(1)}')`,
+    );
+  const filaOrden = async (id: string) =>
+    (await e().bd.query(`SELECT * FROM ordenes_recarga WHERE id = $1`, [id]))
+      .rows[0];
+  const filasDeOrden = async (ordenId: string) => {
+    const { rows } = await e().bd.query(
+      `SELECT m.estado, m.hash_tx, m.monto, t.estado AS trabajo, t.intentos
+       FROM movimientos_billetera m LEFT JOIN trabajos_onchain t ON t.movimiento_id = m.id
+       WHERE m.clave_idempotencia = $1`,
+      [`recarga:${ordenId}`],
+    );
+    return rows;
+  };
   return {
+    recargador,
+    crearRecarga,
+    confirmarRecarga,
+    consultarRecarga,
+    worker,
+    vencerEspera,
+    vaciarCola,
+    filaOrden,
+    filasDeOrden,
     preparar,
     vincular,
     conToken,

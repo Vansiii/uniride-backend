@@ -88,6 +88,13 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
     );
+    const billeteras = `SELECT id FROM billeteras WHERE usuario_id IN (${usuarios})`;
+    await bd.query(
+      `DELETE FROM trabajos_onchain WHERE movimiento_id IN (SELECT id FROM movimientos_billetera WHERE billetera_id IN (${billeteras}))`,
+    );
+    await bd.query(
+      `DELETE FROM ordenes_recarga WHERE billetera_id IN (${billeteras})`,
+    );
     await bd.query(
       `DELETE FROM movimientos_billetera WHERE billetera_id IN (SELECT id FROM billeteras WHERE usuario_id IN (${usuarios}))`,
     );
