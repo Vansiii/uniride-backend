@@ -4,10 +4,12 @@ import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
 import type {
+  BuscarViajesDto,
   DetalleViajeDto,
   LimitesViajeDto,
   MiViajeDto,
   PublicarViajeDto,
+  ViajeEncontradoDto,
   ViajePublicadoDto,
 } from './dto/viaje.dto.js';
 
@@ -28,6 +30,32 @@ const ESTADOS_ACTIVOS = [
 ];
 // ponytail: tope fijo sin paginar; paginar cuando un conductor pueda acumular más.
 const MAXIMO_MIS_VIAJES = 100;
+/** HU-18, RN-1 y RN-2. */
+const RADIO_BUSQUEDA_KM = 1;
+const VENTANA_BUSQUEDA_MS = 30 * MINUTO_MS;
+// ponytail: tope fijo sin paginar; 1 km y una hora ya acotan mucho. Paginar si una zona llega a llenarlo.
+const MAXIMO_RESULTADOS = 50;
+
+/** RN-4 de HU-18: a otros miembros no se les da el nombre completo. */
+const nombreDePila = (nombreCompleto: string) =>
+  nombreCompleto.trim().split(/\s+/)[0];
+
+interface FilaBusqueda {
+  id: string;
+  origen_nombre: string;
+  distancia_km: number;
+  destino_nombre: string;
+  fecha_hora_salida: Date;
+  cupos_disponibles: number;
+  precio_por_asiento: Prisma.Decimal;
+  nombre_completo: string;
+  miembro_desde: Date;
+  verificado: boolean;
+  placa: string;
+  marca: string;
+  modelo: string;
+  color: string;
+}
 
 @Injectable()
 export class ViajesService {
@@ -200,6 +228,86 @@ export class ViajesService {
     }));
   }
 
+  /**
+   * HU-18: viajes de la organización activa con salida a 1 km y ± 30 min del pedido, con cupos y aún sin salir.
+   * Solo proyección pública: nunca foto, documento ni correo (D-20).
+   */
+  async buscar(
+    organizacionId: string,
+    { origenLat: lat, origenLng: lng, horaSalida }: BuscarViajesDto,
+  ): Promise<ViajeEncontradoDto[]> {
+    if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180))
+      throw new ErrorNegocio(
+        400,
+        'COORDENADAS_INVALIDAS',
+        'comun.errores.coordenadas_invalidas',
+      );
+
+    const hora = new Date(horaSalida).getTime();
+    const ahora = Date.now();
+    // Ningún viaje sale fuera de este rango; además, un año extremo no llega a PostgreSQL.
+    if (
+      hora + VENTANA_BUSQUEDA_MS <= ahora ||
+      hora - VENTANA_BUSQUEDA_MS >
+        ahora + ANTICIPACION_MAXIMA_DIAS * 24 * HORA_MS
+    )
+      return [];
+    const desde = new Date(hora - VENTANA_BUSQUEDA_MS);
+    const hasta = new Date(hora + VENTANA_BUSQUEDA_MS);
+
+    const filas = await this.prisma.enOrganizacion(
+      organizacionId,
+      (tx) => tx.$queryRaw<FilaBusqueda[]>`
+        SELECT v.id, v.origen_nombre, d.km::float8 AS distancia_km, v.destino_nombre, v.fecha_hora_salida,
+               v.cupos_disponibles, v.precio_por_asiento, u.nombre_completo, u.creado_en AS miembro_desde,
+               COALESCE(i.estado = 'verificada', false) AS verificado, a.placa, a.marca, a.modelo, a.color
+        FROM viajes v
+        JOIN usuarios u ON u.id = v.conductor_id
+        JOIN vehiculos a ON a.id = v.vehiculo_id
+        LEFT JOIN identidades i ON i.usuario_id = v.conductor_id
+        -- Haversine. El redondeo puede dejar el argumento apenas fuera de [-1, 1], y acos fallaría.
+        CROSS JOIN LATERAL (
+          SELECT 6371 * acos(GREATEST(-1, LEAST(1,
+            cos(radians(${lat}::float8)) * cos(radians(v.origen_lat)) *
+            cos(radians(v.origen_lng) - radians(${lng}::float8)) +
+            sin(radians(${lat}::float8)) * sin(radians(v.origen_lat))
+          ))) AS km
+        ) d
+        WHERE v.organizacion_id = ${organizacionId}::uuid
+          AND v.estado IN ('publicado', 'reservado')
+          AND v.cupos_disponibles > 0
+          AND v.fecha_hora_salida BETWEEN ${desde}::timestamptz AND ${hasta}::timestamptz
+          AND v.fecha_hora_salida > now()
+          AND u.suspendida_en IS NULL
+          AND d.km <= ${RADIO_BUSQUEDA_KM}
+        ORDER BY v.fecha_hora_salida, d.km
+        LIMIT ${MAXIMO_RESULTADOS}`,
+    );
+    return filas.map((f) => ({
+      id: f.id,
+      origenNombre: f.origen_nombre,
+      distanciaKm: Math.round(f.distancia_km * 100) / 100,
+      destinoNombre: f.destino_nombre,
+      fechaHoraSalida: f.fecha_hora_salida,
+      cuposDisponibles: f.cupos_disponibles,
+      precioPorAsiento: Number(f.precio_por_asiento),
+      conductor: {
+        nombre: nombreDePila(f.nombre_completo),
+        verificado: f.verificado,
+        // ponytail: sin reseñas hasta HU-21 (D-17); entonces se leen de su tabla.
+        calificacionPromedio: null,
+        esNuevo: true,
+        miembroDesde: f.miembro_desde,
+      },
+      vehiculo: {
+        placa: f.placa,
+        marca: f.marca,
+        modelo: f.modelo,
+        color: f.color,
+      },
+    }));
+  }
+
   /** Un viaje de otra organización responde igual que uno que no existe (A-13). */
   async detalle(
     organizacionId: string,
@@ -247,7 +355,7 @@ export class ViajesService {
         lng: Number(viaje.destinoLng),
       },
       fechaHoraSalida: viaje.fechaHoraSalida,
-      conductor: { nombre: viaje.conductor.nombreCompleto },
+      conductor: { nombre: nombreDePila(viaje.conductor.nombreCompleto) },
       vehiculo: viaje.vehiculo,
       cuposDisponibles: viaje.cuposDisponibles,
       precioPorAsiento: Number(viaje.precioPorAsiento),
