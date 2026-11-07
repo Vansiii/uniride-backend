@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   DOMINIO,
   prepararEntorno,
@@ -14,7 +14,7 @@ import {
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('hex');
 
-describe('HU-13 Â· recarga de saldo (e2e)', () => {
+describe('HU-13 · recarga de saldo (e2e)', () => {
   let e: Entorno;
   let cadena: CadenaControlable;
   const b = ayudasBilletera(() => e);
@@ -39,7 +39,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
   });
 
   describe('CA-1: recarga completa', () => {
-    it('orden con QR, confirmaciÃ³n firmada, acuÃ±aciÃ³n y saldo actualizado con su hash', async () => {
+    it('orden con QR, confirmación firmada, acuñación y saldo actualizado con su hash', async () => {
       const u = await recargador();
       const creada = await b.crearRecarga(u.token, 50).expect(201);
       expect(creada.body).toMatchObject({
@@ -117,7 +117,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
 
   describe('CA-2 y RN-7: montos', () => {
     it.each([9.99, 500.01, 0, -5])(
-      '%d: rechazado con los lÃ­mites',
+      '%d: rechazado con los límites',
       async (monto) => {
         const u = await recargador();
         const r = await b.crearRecarga(u.token, monto).expect(400);
@@ -127,14 +127,14 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
       },
     );
 
-    it.each([10.999, 50.001])('%d: mÃ¡s de 2 decimales', async (monto) => {
+    it.each([10.999, 50.001])('%d: más de 2 decimales', async (monto) => {
       const u = await recargador();
       const r = await b.crearRecarga(u.token, monto).expect(400);
       expect(r.body.codigo).toBe('MONTO_INVALIDO');
       expect(await ordenes(u.id)).toEqual([]);
     });
 
-    it.each(['50', null, true])('%j: validaciÃ³n', async (monto) => {
+    it.each(['50', null, true])('%j: validación', async (monto) => {
       const u = await recargador();
       const r = await b.crearRecarga(u.token, monto).expect(400);
       expect(r.body.codigo).toBe('VALIDACION_FALLIDA');
@@ -144,13 +144,13 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
       [10, '10.00'],
       [500, '500.00'],
       [12.35, '12.35'],
-    ])('%d: los lÃ­mites y los centavos se aceptan', async (monto, texto) => {
+    ])('%d: los límites y los centavos se aceptan', async (monto, texto) => {
       const u = await recargador();
       const r = await b.crearRecarga(u.token, monto).expect(201);
       expect(r.body.monto).toBe(texto);
     });
 
-    it('acuÃ±a la cantidad exacta con centavos', async () => {
+    it('acuña la cantidad exacta con centavos', async () => {
       const u = await recargador();
       const { body } = await b.crearRecarga(u.token, 12.35).expect(201);
       await b
@@ -193,7 +193,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
         .expect(410);
     });
 
-    it('a un minuto de vencer todavÃ­a se puede confirmar', async () => {
+    it('a un minuto de vencer todavía se puede confirmar', async () => {
       const u = await recargador();
       const { body } = await b.crearRecarga(u.token).expect(201);
       await e.bd.query(
@@ -219,7 +219,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
     });
   });
 
-  describe('CA-6: quiÃ©n puede recargar', () => {
+  describe('CA-6: quién puede recargar', () => {
     it.each([
       ['sin identidad', null],
       ['con identidad en revisión', 'en_revision'],
@@ -247,7 +247,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
       expect(r.body.codigo).toBe('CUENTA_SUSPENDIDA');
     });
 
-    it('sin sesiÃ³n: 401', async () => {
+    it('sin sesión: 401', async () => {
       await e.api().post(RUTA_RECARGAS).send({ monto: 50 }).expect(401);
     });
   });
@@ -295,7 +295,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
         intentos: 1,
       });
 
-      // TodavÃ­a en espera: no se vuelve a intentar antes de tiempo.
+      // Todavía en espera: no se vuelve a intentar antes de tiempo.
       await b.worker().procesarPendientes();
       expect(cadena.acunaciones).toBe(1);
 
@@ -307,7 +307,7 @@ describe('HU-13 Â· recarga de saldo (e2e)', () => {
       expect(cadena.saldos.get(u.direccion)).toBe(50n * URC);
     });
 
-    it('al quinto intento alerta una vez en auditorÃ­a y sigue reintentando', async () => {
+    it('al quinto intento alerta una vez en auditoría y sigue reintentando', async () => {
       const u = await recargador();
       const { body } = await b.crearRecarga(u.token).expect(201);
       const id = body.ordenId as string;

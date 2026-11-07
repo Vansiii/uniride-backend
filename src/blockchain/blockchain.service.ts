@@ -76,7 +76,11 @@ export class CadenaReal implements Cadena {
     peticion.timeout = tiempoMaximoMs;
     // Con red fija ethers no reintenta detectarla sin fin cuando el nodo está caído.
     const red = Network.from(cadenaId);
-    this.proveedor = new JsonRpcProvider(peticion, red, { staticNetwork: red });
+    // Sin caché: con los 250 ms de ethers, dos acuñaciones seguidas leerían el mismo nonce.
+    this.proveedor = new JsonRpcProvider(peticion, red, {
+      staticNetwork: red,
+      cacheTimeout: -1,
+    });
     this.token = direccionToken
       ? new Contract(direccionToken, ABI_UNICOIN, this.proveedor)
       : null;
