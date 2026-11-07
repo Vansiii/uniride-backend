@@ -237,9 +237,30 @@ model Billetera {
   creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn    DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  usuario Usuario @relation(fields: [usuarioId], references: [id])
+  usuario     Usuario               @relation(fields: [usuarioId], references: [id])
+  movimientos MovimientoBilletera[]
 
   @@map("billeteras")
+}
+
+/// Libro mayor (HU-14): solo inserción; de una fila ya escrita solo cambian `estado` y `hashTx` (trigger y GRANT en la migración).
+model MovimientoBilletera {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  billeteraId       String   @map("billetera_id") @db.Uuid
+  tipo              String
+  monto             Decimal  @db.Decimal(12, 2)
+  estado            String   @default("pendiente")
+  reservaId         String?  @map("reserva_id") @db.Uuid
+  hashTx            String?  @map("hash_tx")
+  claveIdempotencia String   @unique @map("clave_idempotencia")
+  metadatos         Json?
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  billetera Billetera @relation(fields: [billeteraId], references: [id])
+
+  @@index([billeteraId, creadoEn(sort: Desc)])
+  @@index([reservaId])
+  @@map("movimientos_billetera")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.
