@@ -178,22 +178,30 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
         const responder = (p: {
           id: number;
           method: string;
-          params: { to?: string; data?: string }[];
+          params: {
+            to?: string;
+            data?: string;
+            fromBlock?: string;
+            toBlock?: string;
+          }[];
         }) => {
           nodo.llamadas.push({
             metodo: p.method,
             a: p.params[0]?.to,
             datos: p.params[0]?.data,
           });
+          const resultado = nodo.resultados[p.method];
           return {
             jsonrpc: '2.0',
             id: p.id,
             result:
-              p.method in nodo.resultados
-                ? nodo.resultados[p.method]
-                : p.method === 'eth_chainId'
-                  ? nodo.cadena
-                  : nodo.llamada,
+              typeof resultado === 'function'
+                ? resultado(p.params[0])
+                : p.method in nodo.resultados
+                  ? resultado
+                  : p.method === 'eth_chainId'
+                    ? nodo.cadena
+                    : nodo.llamada,
           };
         };
         respuesta.statusCode = nodo.estado;
@@ -228,32 +236,72 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
   describe('acunarRecarga', () => {
     const SI = `0x${'1'.padStart(64, '0')}`;
     const relayer = () => new CadenaReal(url, TOKEN, 31337, undefined, LLAVE);
+    const EVENTO = {
+      address: TOKEN,
+      topics: [
+        id('RecargaAcunada(bytes32,address,uint256)'),
+        ID_ORDEN,
+        zeroPadValue(DIRECCION, 32),
+      ],
+      data: `0x${URC.toString(16).padStart(64, '0')}`,
+      blockNumber: '0x1',
+      blockHash: `0x${'cd'.repeat(32)}`,
+      transactionHash: HASH,
+      transactionIndex: '0x0',
+      logIndex: '0x0',
+      removed: false,
+    };
+
+    it('orden acuñada hace muchos bloques: la busca por ventanas, como exige un RPC público', async () => {
+      nodo.llamada = SI;
+      nodo.resultados.eth_blockNumber = '0x9c4'; // 2500
+      const rangos: number[][] = [];
+      nodo.resultados.eth_getLogs = ({
+        fromBlock,
+        toBlock,
+      }: {
+        fromBlock: string;
+        toBlock: string;
+      }) => {
+        const rango = [Number(fromBlock), Number(toBlock)];
+        rangos.push(rango);
+        return rango[1] - rango[0] < 1_000 && rango[0] <= 100 ? [EVENTO] : [];
+      };
+      await expect(
+        relayer().acunarRecarga(DIRECCION, URC, ID_ORDEN),
+      ).resolves.toBe(HASH);
+      expect(rangos).toEqual([
+        [1501, 2500],
+        [501, 1500],
+        [0, 500],
+      ]);
+    });
 
     it('orden ya acuñada: recupera el hash del evento y no envía otra transacción', async () => {
       nodo.llamada = SI;
-      nodo.resultados.eth_getLogs = [
-        {
-          address: TOKEN,
-          topics: [
-            id('RecargaAcunada(bytes32,address,uint256)'),
-            ID_ORDEN,
-            zeroPadValue(DIRECCION, 32),
-          ],
-          data: `0x${URC.toString(16).padStart(64, '0')}`,
-          blockNumber: '0x1',
-          blockHash: `0x${'cd'.repeat(32)}`,
-          transactionHash: HASH,
-          transactionIndex: '0x0',
-          logIndex: '0x0',
-          removed: false,
-        },
-      ];
+      nodo.resultados.eth_getLogs = [EVENTO];
       await expect(
         relayer().acunarRecarga(DIRECCION, URC, ID_ORDEN),
       ).resolves.toBe(HASH);
       const metodos = nodo.llamadas.map((l) => l.metodo);
       expect(metodos).not.toContain('eth_sendRawTransaction');
       expect(metodos).not.toContain('eth_estimateGas');
+    });
+
+    it('dos acuñaciones seguidas leen el nonce cada una: la caché de ethers lo repetiría', async () => {
+      nodo.llamada = `0x${'0'.repeat(64)}`;
+      // Sin bloque, ethers rechaza al armar la transacción, ya con el nonce leído: lo único que mira esta prueba.
+      nodo.resultados.eth_getBlockByNumber = null;
+      const cadena = relayer();
+      await expect(
+        cadena.acunarRecarga(DIRECCION, URC, ID_ORDEN),
+      ).rejects.toBeDefined();
+      await expect(
+        cadena.acunarRecarga(DIRECCION, URC, ID_ORDEN),
+      ).rejects.toBeDefined();
+      expect(
+        nodo.llamadas.filter((l) => l.metodo === 'eth_getTransactionCount'),
+      ).toHaveLength(2);
     });
 
     it('orden acuñada sin su evento en el nodo: rechaza, para reintentar', async () => {

@@ -20,6 +20,8 @@ const TIEMPO_MAXIMO_MS = 5_000;
 const VIDA_CACHE_MS = 15_000;
 /** Sin recibo a tiempo el worker reintenta: el contrato no acuña dos veces la misma orden. */
 const TIEMPO_RECIBO_MS = 120_000;
+const BLOQUES_POR_VENTANA = 1_000;
+const MAX_VENTANAS_LOGS = 500;
 const ABI_UNICOIN = [
   'function balanceOf(address) view returns (uint256)',
   'function ordenAcunada(bytes32) view returns (bool)',
@@ -111,19 +113,32 @@ export class CadenaReal implements Cadena {
       throw new Error('RELAYER_LLAVE_PRIVADA no está configurada');
     // Ya acuñada: un intento anterior perdió la respuesta. Si dos intentos se cruzan, el contrato revierte
     // con `OrdenYaAcunada` y el siguiente reintento pasa por aquí.
-    if (await this.token.ordenAcunada(idOrden)) {
-      // ponytail: sin `fromBlock`; si un RPC limita el rango de bloques, esto falla y el worker sigue reintentando
-      // con su alerta. Se acota guardando el bloque al enviar.
-      const [evento] = await this.token.queryFilter(
-        this.token.filters.RecargaAcunada(idOrden),
-      );
-      if (!evento) throw new Error('Orden acuñada sin su evento en el nodo');
-      return evento.transactionHash;
-    }
+    if (await this.token.ordenAcunada(idOrden))
+      return this.hashDeAcunacion(this.token, idOrden);
     const token = this.token.connect(this.relayer) as Contract;
     const tx = await token.acunarRecarga(destino, monto, idOrden);
     await tx.wait(1, TIEMPO_RECIBO_MS);
     return tx.hash as string;
+  }
+
+  /**
+   * Busca el evento de atrás hacia adelante por ventanas: los RPC públicos rechazan un rango grande de bloques.
+   * ponytail: tras `MAX_VENTANAS_LOGS` (unos 11 días en Amoy) rechaza y el worker sigue con su alerta; si una orden
+   * llega a tardar más, guardar el bloque al enviar.
+   */
+  private async hashDeAcunacion(
+    token: Contract,
+    idOrden: string,
+  ): Promise<string> {
+    const filtro = token.filters.RecargaAcunada(idOrden);
+    let hasta = await this.proveedor.getBlockNumber();
+    for (let i = 0; i < MAX_VENTANAS_LOGS && hasta >= 0; i++) {
+      const desde = Math.max(0, hasta - BLOQUES_POR_VENTANA + 1);
+      const [evento] = await token.queryFilter(filtro, desde, hasta);
+      if (evento) return evento.transactionHash;
+      hasta = desde - 1;
+    }
+    throw new Error('Orden acuñada sin su evento en el nodo');
   }
 
   exploradorUrl(direccion: string): string | null {

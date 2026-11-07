@@ -94,6 +94,11 @@ export class RecargasController {
     type: OrdenRecargaDto,
     description: 'Ya se acreditó: no se acuña de nuevo (CA-3).',
   })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTENTICADO`, `FIRMA_DISPOSITIVO_INVALIDA` (también sin dispositivo vinculado) o `PETICION_EXPIRADA`.',
+  })
   @ApiGoneResponse({ type: ErrorDto, description: '`ORDEN_EXPIRADA`' })
   @ApiNotFoundResponse({
     type: ErrorDto,
