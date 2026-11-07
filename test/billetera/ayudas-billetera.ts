@@ -1,4 +1,5 @@
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
+import { Wallet } from 'ethers';
 import {
   BlockchainService,
   CadenaSimulada,
@@ -11,12 +12,14 @@ export const URC = 10n ** 18n;
 /** La cadena simulada con saldos y una falla activable. Su error lleva la URL del nodo a propósito: no debe llegar a logs ni respuestas. */
 export class CadenaControlable extends CadenaSimulada {
   fallar = false;
+  colgar = false;
   explorador: string | null = null;
   lecturas = 0;
   saldos = new Map<string, bigint>();
 
   override async leerSaldo(direccion?: string): Promise<bigint> {
     this.lecturas++;
+    if (this.colgar) return new Promise<bigint>(() => {});
     if (this.fallar)
       throw Object.assign(
         new Error('nodo caído en https://nodo.test/clave-rpc'),
@@ -29,6 +32,10 @@ export class CadenaControlable extends CadenaSimulada {
 
   override exploradorUrl(): string | null {
     return this.explorador;
+  }
+
+  override exploradorTxUrl(hashTx?: string): string | null {
+    return this.explorador && `${this.explorador}/tx/${hashTx}`;
   }
 }
 
@@ -58,6 +65,9 @@ export function firmar(metodo: string, ruta: string, d: Dispositivo) {
 
 export const RUTA = '/api/v1/billetera';
 export const RUTA_MIA = `${RUTA}/mia`;
+export const RUTA_SALDO = `${RUTA}/saldo`;
+export const RUTA_MOVIMIENTOS = `${RUTA}/movimientos`;
+export const HASH = `0x${'ab'.repeat(32)}`;
 
 /** Cliente de prueba de los endpoints de billetera, con la cadena controlable reiniciada por prueba. */
 export function ayudasBilletera(e: () => Entorno) {
@@ -102,5 +112,80 @@ export function ayudasBilletera(e: () => Entorno) {
         [actorId],
       )
     ).rows;
-  return { preparar, vincular, conToken, crear, mia, filas, auditorias };
+  const saldo = (token: string) =>
+    e().api().get(RUTA_SALDO).set(conToken(token));
+  const movimientos = (token: string, consulta: object = {}) =>
+    e().api().get(RUTA_MOVIMIENTOS).set(conToken(token)).query(consulta);
+  /** Usuario con identidad (verificada por omisión; `null` sin fila) y sesión. Sin dispositivo: estas lecturas no firman. */
+  const persona = async (
+    correo: string,
+    estado: string | null = 'verificada',
+  ) => {
+    const id = await e().crearUsuario(correo);
+    if (estado) {
+      const verificada = estado === 'verificada';
+      await e().bd.query(
+        `INSERT INTO identidades (usuario_id, estado, consentimiento_en, documento_hash, verificado_en)
+         VALUES ($1, $2, now(), $3, $4)`,
+        [
+          id,
+          estado,
+          verificada ? `hash-${correo}` : null,
+          verificada ? new Date() : null,
+        ],
+      );
+    }
+    return { id, token: await e().iniciar(correo) };
+  };
+  /** Billetera directa en BD: su creación ya la prueba HU-12. */
+  const billetera = async (usuarioId: string) => {
+    const direccion = Wallet.createRandom().address;
+    const { rows } = await e().bd.query(
+      `INSERT INTO billeteras (usuario_id, direccion, llave_custodia_ref) VALUES ($1, $2, 'cifrada') RETURNING id`,
+      [usuarioId, direccion],
+    );
+    return { billetera: rows[0].id as string, direccion };
+  };
+  /** Asiento directo en BD; por omisión una recarga confirmada de hoy. */
+  const asiento = async (
+    billeteraId: string,
+    o: {
+      tipo?: string;
+      monto?: string;
+      estado?: string;
+      reservaId?: string;
+      creadoEn?: Date;
+    } = {},
+  ) => {
+    const estado = o.estado ?? 'confirmado';
+    const { rows } = await e().bd.query(
+      `INSERT INTO movimientos_billetera (billetera_id, tipo, monto, estado, reserva_id, hash_tx, clave_idempotencia, creado_en)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [
+        billeteraId,
+        o.tipo ?? 'recarga',
+        o.monto ?? '10.00',
+        estado,
+        o.reservaId ?? null,
+        estado === 'confirmado' ? HASH : null,
+        randomUUID(),
+        o.creadoEn ?? new Date(),
+      ],
+    );
+    return rows[0].id as string;
+  };
+  return {
+    preparar,
+    vincular,
+    conToken,
+    crear,
+    mia,
+    filas,
+    auditorias,
+    saldo,
+    movimientos,
+    persona,
+    billetera,
+    asiento,
+  };
 }

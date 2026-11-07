@@ -6,6 +6,7 @@ import type { PrismaService } from '../comun/prisma.service.js';
 import { BilleteraController } from './billetera.controller.js';
 import type { BilleteraService } from './billetera.service.js';
 import { CuentaActivaGuard } from './cuenta-activa.guard.js';
+import { SaldoController } from './saldo.controller.js';
 
 const USUARIO = '11111111-1111-4111-8111-111111111111';
 const contexto = {
@@ -19,6 +20,18 @@ describe('CA-4 · guards de la billetera', () => {
       IdentidadVerificadaGuard,
       FirmaDispositivoGuard,
     ]);
+  });
+
+  it('HU-14: saldo y movimientos exigen cuenta activa e identidad, sin firma de dispositivo', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, SaldoController)).toEqual([
+      CuentaActivaGuard,
+      IdentidadVerificadaGuard,
+    ]);
+    for (const metodo of [
+      SaldoController.prototype.saldo,
+      SaldoController.prototype.listar,
+    ])
+      expect(Reflect.getMetadata(GUARDS_METADATA, metodo)).toBeUndefined();
   });
 
   it.each([

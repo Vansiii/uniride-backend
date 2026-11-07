@@ -6,6 +6,8 @@ import {
   CadenaSimulada,
   crearCadena,
   formatearUrc,
+  unidadesAUrc,
+  urcAUnidades,
 } from './blockchain.service.js';
 
 const TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
@@ -238,5 +240,118 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
     expect(
       new CadenaReal(url, TOKEN, 31337).exploradorUrl(DIRECCION),
     ).toBeNull();
+  });
+
+  it('el enlace a la transacción es Polygonscan solo en Amoy', () => {
+    expect(new CadenaReal(url, TOKEN, 80002).exploradorTxUrl('0xabc')).toBe(
+      'https://amoy.polygonscan.com/tx/0xabc',
+    );
+    expect(
+      new CadenaReal(url, TOKEN, 31337).exploradorTxUrl('0xabc'),
+    ).toBeNull();
+  });
+});
+
+describe('BlockchainService.leerSaldoConCache', () => {
+  const preparar = () => {
+    const leerSaldo = vi.fn().mockResolvedValue(5n);
+    const servicio = new BlockchainService();
+    servicio.cadena = {
+      leerSaldo,
+      exploradorUrl: () => null,
+      exploradorTxUrl: () => null,
+    };
+    return { servicio, leerSaldo };
+  };
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('dentro de 15 s no vuelve a la cadena e indica que no es lectura real', async () => {
+    const { servicio, leerSaldo } = preparar();
+    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+      saldo: 5n,
+      real: true,
+    });
+    vi.advanceTimersByTime(14_999);
+    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+      saldo: 5n,
+      real: false,
+    });
+    expect(leerSaldo).toHaveBeenCalledOnce();
+  });
+
+  it('a los 15 s lee otra vez', async () => {
+    const { servicio, leerSaldo } = preparar();
+    await servicio.leerSaldoConCache(DIRECCION);
+    vi.advanceTimersByTime(15_000);
+    const r = await servicio.leerSaldoConCache(DIRECCION);
+    expect(r.real).toBe(true);
+    expect(leerSaldo).toHaveBeenCalledTimes(2);
+  });
+
+  it('cada dirección tiene su entrada', async () => {
+    const { servicio, leerSaldo } = preparar();
+    await servicio.leerSaldoConCache(DIRECCION);
+    const r = await servicio.leerSaldoConCache(TOKEN);
+    expect(r.real).toBe(true);
+    expect(leerSaldo).toHaveBeenCalledTimes(2);
+  });
+
+  it('una falla no se guarda: la siguiente lectura vuelve a intentar', async () => {
+    const { servicio, leerSaldo } = preparar();
+    leerSaldo.mockRejectedValueOnce(new Error('caído'));
+    await expect(servicio.leerSaldoConCache(DIRECCION)).rejects.toThrow(
+      'caído',
+    );
+    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+      saldo: 5n,
+      real: true,
+    });
+  });
+
+  it('un nodo colgado se corta a los 5 s y no deja nada en caché', async () => {
+    const { servicio, leerSaldo } = preparar();
+    leerSaldo.mockReturnValueOnce(new Promise(() => {}));
+    const lectura = servicio.leerSaldoConCache(DIRECCION);
+    const verificado = expect(lectura).rejects.toThrow('a tiempo');
+    await vi.advanceTimersByTimeAsync(5_000);
+    await verificado;
+    const r = await servicio.leerSaldoConCache(DIRECCION);
+    expect(r.real).toBe(true);
+  });
+
+  it('cambiar de cadena vacía el caché', async () => {
+    const { servicio, leerSaldo } = preparar();
+    await servicio.leerSaldoConCache(DIRECCION);
+    servicio.cadena = {
+      leerSaldo,
+      exploradorUrl: () => null,
+      exploradorTxUrl: () => null,
+    };
+    const r = await servicio.leerSaldoConCache(DIRECCION);
+    expect(r.real).toBe(true);
+  });
+
+  it('una cadena mal configurada rechaza, no lanza al llamar', async () => {
+    vi.stubEnv('CADENA_ID', '1');
+    const lectura = new BlockchainService().leerSaldoConCache(DIRECCION);
+    await expect(lectura).rejects.toThrow('CADENA_ID');
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('urcAUnidades y unidadesAUrc', () => {
+  it.each([
+    ['15.00', 15n * URC],
+    ['0', 0n],
+    ['0.01', URC / 100n],
+    ['-5.50', (-55n * URC) / 10n],
+  ])('%s', (texto, unidades) => {
+    expect(urcAUnidades(texto)).toBe(unidades);
+  });
+
+  it('unidadesAUrc no pierde precisión', () => {
+    expect(unidadesAUrc(URC + 1n)).toBe('1.000000000000000001');
   });
 });
