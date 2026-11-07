@@ -29,6 +29,7 @@ function crear(
       contable: o.contable ?? 100n * URC,
       bloqueado: o.bloqueado ?? 0n,
       pendientes: o.pendientes ?? 0,
+      confirmados: 3,
     }),
   };
   const billeteras = { exigir: vi.fn().mockResolvedValue(FILA) };
@@ -63,7 +64,10 @@ describe('CA-4 · ConciliacionService', () => {
       enLinea: true,
     });
     expect(c.billeteras.exigir).toHaveBeenCalledWith('u1');
-    expect(c.blockchain.leerSaldoConCache).toHaveBeenCalledWith(FILA.direccion);
+    expect(c.blockchain.leerSaldoConCache).toHaveBeenCalledWith(
+      FILA.direccion,
+      3,
+    );
     expect(c.movimientos.resumen).toHaveBeenCalledWith(FILA.id);
     expect(c.auditoria.registrar).not.toHaveBeenCalled();
   });

@@ -149,12 +149,13 @@ describe('MovimientosService', () => {
   it('resumen pasa los montos del libro a unidades mínimas, también si es negativo', async () => {
     const c = crear();
     c.prisma.$queryRaw.mockResolvedValue([
-      { contable: '-5.50', bloqueado: '15.00', pendientes: 2 },
+      { contable: '-5.50', bloqueado: '15.00', pendientes: 2, confirmados: 4 },
     ]);
     await expect(c.servicio.resumen('b1')).resolves.toEqual({
       contable: (-55n * URC) / 10n,
       bloqueado: 15n * URC,
       pendientes: 2,
+      confirmados: 4,
     });
   });
 });

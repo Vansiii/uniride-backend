@@ -144,7 +144,7 @@ export class BlockchainService implements OnModuleInit {
   // ponytail: por proceso y una entrada por billetera consultada; con varias instancias cada una lee por su cuenta.
   private readonly cache = new Map<
     string,
-    { saldo: bigint; venceEn: number }
+    { saldo: bigint; venceEn: number; version: number }
   >();
 
   /** Una mala configuración detiene el arranque; en pruebas se elige al primer uso. */
@@ -165,15 +165,25 @@ export class BlockchainService implements OnModuleInit {
   /**
    * Para `/saldo` (HU-14): no satura el RPC y nunca espera más que el tiempo máximo, aunque el nodo se cuelgue.
    * `real` indica si este saldo acaba de salir de la cadena. Rechaza si el nodo falla o no responde a tiempo.
+   * `version` cambia cuando el libro confirma un movimiento: el saldo guardado ya no sirve, aunque no haya vencido.
    */
   async leerSaldoConCache(
     direccion: string,
+    version: number,
   ): Promise<{ saldo: bigint; real: boolean }> {
     const guardado = this.cache.get(direccion);
-    if (guardado && Date.now() < guardado.venceEn)
+    if (
+      guardado &&
+      guardado.version === version &&
+      Date.now() < guardado.venceEn
+    )
       return { saldo: guardado.saldo, real: false };
     const saldo = await conTiempoMaximo(this.cadena.leerSaldo(direccion));
-    this.cache.set(direccion, { saldo, venceEn: Date.now() + VIDA_CACHE_MS });
+    this.cache.set(direccion, {
+      saldo,
+      version,
+      venceEn: Date.now() + VIDA_CACHE_MS,
+    });
     return { saldo, real: true };
   }
 }

@@ -214,6 +214,34 @@ describe('HU-14 · saldo de la billetera (e2e)', () => {
       expect(vencido.body.enLinea).toBe(false);
       expect(cadena.lecturas).toBe(2);
     });
+
+    it('A-09: un movimiento confirmado invalida el caché; no se ve como disponible lo ya retenido', async () => {
+      const u = await conBilletera();
+      await b.asiento(u.billetera, { monto: '150.00' });
+      cadena.saldos.set(u.direccion, 150n * URC);
+      await b.saldo(u.token).expect(200);
+
+      await b.asiento(u.billetera, bloqueo('15.00'));
+      cadena.saldos.set(u.direccion, 135n * URC);
+      const r = await b.saldo(u.token).expect(200);
+
+      expect(r.body).toMatchObject({
+        saldoTotal: '150.00',
+        saldoDisponible: '135.00',
+        saldoBloqueadoEscrow: '15.00',
+        enLinea: true,
+      });
+      expect(cadena.lecturas).toBe(2);
+      expect(await diferencias(u.id)).toEqual([]);
+    });
+
+    it('un movimiento aún pendiente no gasta otra lectura de la cadena', async () => {
+      const u = await conBilletera();
+      await b.saldo(u.token).expect(200);
+      await b.asiento(u.billetera, { monto: '10.00', estado: 'pendiente' });
+      await b.saldo(u.token).expect(200);
+      expect(cadena.lecturas).toBe(1);
+    });
   });
 
   describe('CA-4: conciliación', () => {

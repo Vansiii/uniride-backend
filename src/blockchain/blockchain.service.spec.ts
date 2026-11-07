@@ -269,12 +269,12 @@ describe('BlockchainService.leerSaldoConCache', () => {
 
   it('dentro de 15 s no vuelve a la cadena e indica que no es lectura real', async () => {
     const { servicio, leerSaldo } = preparar();
-    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+    await expect(servicio.leerSaldoConCache(DIRECCION, 0)).resolves.toEqual({
       saldo: 5n,
       real: true,
     });
     vi.advanceTimersByTime(14_999);
-    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+    await expect(servicio.leerSaldoConCache(DIRECCION, 0)).resolves.toEqual({
       saldo: 5n,
       real: false,
     });
@@ -283,17 +283,25 @@ describe('BlockchainService.leerSaldoConCache', () => {
 
   it('a los 15 s lee otra vez', async () => {
     const { servicio, leerSaldo } = preparar();
-    await servicio.leerSaldoConCache(DIRECCION);
+    await servicio.leerSaldoConCache(DIRECCION, 0);
     vi.advanceTimersByTime(15_000);
-    const r = await servicio.leerSaldoConCache(DIRECCION);
+    const r = await servicio.leerSaldoConCache(DIRECCION, 0);
+    expect(r.real).toBe(true);
+    expect(leerSaldo).toHaveBeenCalledTimes(2);
+  });
+
+  it('otra versión del libro lee otra vez, aunque no hayan pasado 15 s', async () => {
+    const { servicio, leerSaldo } = preparar();
+    await servicio.leerSaldoConCache(DIRECCION, 0);
+    const r = await servicio.leerSaldoConCache(DIRECCION, 1);
     expect(r.real).toBe(true);
     expect(leerSaldo).toHaveBeenCalledTimes(2);
   });
 
   it('cada dirección tiene su entrada', async () => {
     const { servicio, leerSaldo } = preparar();
-    await servicio.leerSaldoConCache(DIRECCION);
-    const r = await servicio.leerSaldoConCache(TOKEN);
+    await servicio.leerSaldoConCache(DIRECCION, 0);
+    const r = await servicio.leerSaldoConCache(TOKEN, 0);
     expect(r.real).toBe(true);
     expect(leerSaldo).toHaveBeenCalledTimes(2);
   });
@@ -301,10 +309,10 @@ describe('BlockchainService.leerSaldoConCache', () => {
   it('una falla no se guarda: la siguiente lectura vuelve a intentar', async () => {
     const { servicio, leerSaldo } = preparar();
     leerSaldo.mockRejectedValueOnce(new Error('caído'));
-    await expect(servicio.leerSaldoConCache(DIRECCION)).rejects.toThrow(
+    await expect(servicio.leerSaldoConCache(DIRECCION, 0)).rejects.toThrow(
       'caído',
     );
-    await expect(servicio.leerSaldoConCache(DIRECCION)).resolves.toEqual({
+    await expect(servicio.leerSaldoConCache(DIRECCION, 0)).resolves.toEqual({
       saldo: 5n,
       real: true,
     });
@@ -313,29 +321,29 @@ describe('BlockchainService.leerSaldoConCache', () => {
   it('un nodo colgado se corta a los 5 s y no deja nada en caché', async () => {
     const { servicio, leerSaldo } = preparar();
     leerSaldo.mockReturnValueOnce(new Promise(() => {}));
-    const lectura = servicio.leerSaldoConCache(DIRECCION);
+    const lectura = servicio.leerSaldoConCache(DIRECCION, 0);
     const verificado = expect(lectura).rejects.toThrow('a tiempo');
     await vi.advanceTimersByTimeAsync(5_000);
     await verificado;
-    const r = await servicio.leerSaldoConCache(DIRECCION);
+    const r = await servicio.leerSaldoConCache(DIRECCION, 0);
     expect(r.real).toBe(true);
   });
 
   it('cambiar de cadena vacía el caché', async () => {
     const { servicio, leerSaldo } = preparar();
-    await servicio.leerSaldoConCache(DIRECCION);
+    await servicio.leerSaldoConCache(DIRECCION, 0);
     servicio.cadena = {
       leerSaldo,
       exploradorUrl: () => null,
       exploradorTxUrl: () => null,
     };
-    const r = await servicio.leerSaldoConCache(DIRECCION);
+    const r = await servicio.leerSaldoConCache(DIRECCION, 0);
     expect(r.real).toBe(true);
   });
 
   it('una cadena mal configurada rechaza, no lanza al llamar', async () => {
     vi.stubEnv('CADENA_ID', '1');
-    const lectura = new BlockchainService().leerSaldoConCache(DIRECCION);
+    const lectura = new BlockchainService().leerSaldoConCache(DIRECCION, 0);
     await expect(lectura).rejects.toThrow('CADENA_ID');
     vi.unstubAllEnvs();
   });

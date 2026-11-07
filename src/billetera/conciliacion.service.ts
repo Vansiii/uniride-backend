@@ -23,15 +23,14 @@ export class ConciliacionService {
 
   async saldo(usuarioId: string): Promise<SaldoDto> {
     const billetera = await this.billeteras.exigir(usuarioId);
+    const { contable, bloqueado, pendientes, confirmados } =
+      await this.movimientos.resumen(billetera.id);
     const lectura = await this.blockchain
-      .leerSaldoConCache(billetera.direccion)
+      .leerSaldoConCache(billetera.direccion, confirmados)
       .catch((error: unknown) => {
         this.registro.warn(`Saldo sin nodo (${tipoDeError(error)})`);
         return null;
       });
-    const { contable, bloqueado, pendientes } = await this.movimientos.resumen(
-      billetera.id,
-    );
 
     // Con pendientes el libro y la cadena pueden diferir sin que nada ande mal; del caché ya se comparó al leerlo.
     if (lectura?.real && pendientes === 0 && lectura.saldo !== contable)

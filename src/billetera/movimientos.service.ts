@@ -28,6 +28,7 @@ export interface ResumenLibro {
   contable: bigint;
   bloqueado: bigint;
   pendientes: number;
+  confirmados: number;
 }
 
 /** Libro mayor de la billetera (RN-1). HU-13 será el primero en registrar movimientos fuera de las pruebas. */
@@ -106,7 +107,12 @@ export class MovimientosService {
    */
   async resumen(billeteraId: string): Promise<ResumenLibro> {
     const [fila] = await this.prisma.$queryRaw<
-      { contable: string; bloqueado: string; pendientes: number }[]
+      {
+        contable: string;
+        bloqueado: string;
+        pendientes: number;
+        confirmados: number;
+      }[]
     >`
       SELECT
         COALESCE(SUM(CASE m.tipo WHEN 'bloqueo_reserva' THEN -m.monto ELSE m.monto END)
@@ -119,13 +125,15 @@ export class MovimientosService {
               AND r.tipo IN ('liberacion_viaje', 'reembolso_reserva')
           )
         ), 0)::text AS bloqueado,
-        COUNT(*) FILTER (WHERE m.estado = 'pendiente')::int AS pendientes
+        COUNT(*) FILTER (WHERE m.estado = 'pendiente')::int AS pendientes,
+        COUNT(*) FILTER (WHERE m.estado = 'confirmado')::int AS confirmados
       FROM movimientos_billetera m
       WHERE m.billetera_id = ${billeteraId}::uuid`;
     return {
       contable: urcAUnidades(fila.contable),
       bloqueado: urcAUnidades(fila.bloqueado),
       pendientes: fila.pendientes,
+      confirmados: fila.confirmados,
     };
   }
 }
