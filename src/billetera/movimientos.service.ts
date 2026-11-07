@@ -46,7 +46,7 @@ export class MovimientosService {
 
   /**
    * Nace `pendiente` (`ssd.md` §10). Con una clave repetida no inserta y devuelve el movimiento original si es la
-   * misma operación; con otra billetera, tipo o monto falla (A-09). `ON CONFLICT DO NOTHING` no aborta la
+   * misma operación; con otra billetera, tipo, monto o reserva falla (A-09). `ON CONFLICT DO NOTHING` no aborta la
    * transacción `tx` de quien llama, a diferencia de capturar el P2002.
    */
   async registrar(
@@ -70,7 +70,8 @@ export class MovimientosService {
       count === 0 &&
       (movimiento.billeteraId !== nuevo.billeteraId ||
         movimiento.tipo !== nuevo.tipo ||
-        !movimiento.monto.equals(nuevo.monto))
+        !movimiento.monto.equals(nuevo.monto) ||
+        movimiento.reservaId !== (nuevo.reservaId ?? null))
     )
       throw new ErrorNegocio(
         409,

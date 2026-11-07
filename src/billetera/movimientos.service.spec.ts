@@ -54,6 +54,7 @@ describe('MovimientosService', () => {
       billeteraId: 'b1',
       tipo: 'recarga',
       monto: new Prisma.Decimal('10.00'),
+      reservaId: null,
     };
 
     it('con clave repetida y los mismos datos devuelve creado false', async () => {
@@ -68,6 +69,7 @@ describe('MovimientosService', () => {
       ['otra billetera', { billeteraId: 'b2' }],
       ['otro tipo', { tipo: 'reembolso_reserva' as const }],
       ['otro monto', { monto: '10.01' }],
+      ['otra reserva', { reservaId: 'r2' }],
     ])('con clave repetida y %s falla', async (_, cambio) => {
       const c = crear();
       c.movimientoBilletera.createMany.mockResolvedValue({ count: 0 });
