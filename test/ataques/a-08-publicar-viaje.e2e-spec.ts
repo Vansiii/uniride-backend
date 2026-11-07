@@ -49,6 +49,30 @@ describe('A-08 · publicar un viaje sin la firma del teléfono (e2e)', () => {
     expect(await v.filas(c.id)).toEqual([]);
   });
 
+  // La app reenvía la misma firma tras renovar la sesión: así no pide otra huella.
+  it('con la sesión vencida la firma no se gasta: vale una vez con la sesión renovada', async () => {
+    const c = await v.conductor(organizacionId);
+    const cuerpo = cuerpoViaje();
+    const firma = firmar(
+      'POST',
+      RUTA_VIAJES,
+      c.dispositivo,
+      JSON.stringify(cuerpo),
+    );
+    const vencida = await e
+      .api()
+      .post(RUTA_VIAJES)
+      .set('Authorization', 'Bearer vencido')
+      .set(firma)
+      .send(cuerpo)
+      .expect(401);
+    expect(vencida.body.codigo).toBe('NO_AUTENTICADO');
+    const renovada = () => enviar(c, cuerpo).set(firma);
+    expect((await renovada()).status).toBe(201);
+    expect((await renovada()).body.codigo).toBe('PETICION_EXPIRADA');
+    expect(await v.filas(c.id)).toHaveLength(1);
+  });
+
   it('otro cuerpo que el firmado (subir el precio o cambiar la hora): 401', async () => {
     const c = await v.conductor(organizacionId);
     const firmado = cuerpoViaje();
