@@ -88,6 +88,13 @@ export class ViajesService {
         },
       );
 
+    if (dto.origenLat === dto.destinoLat && dto.origenLng === dto.destinoLng)
+      throw new ErrorNegocio(
+        400,
+        'LUGARES_IGUALES',
+        'viajes.publicar.lugares_iguales',
+      );
+
     return this.prisma.enOrganizacion(organizacionId, async (tx) => {
       const { precioMaximoUrc } = await tx.organizacion.findUniqueOrThrow({
         where: { id: organizacionId },
@@ -111,6 +118,11 @@ export class ViajesService {
         where: {
           conductorId,
           estado: { in: ESTADOS_ACTIVOS },
+          // Publicado cuya salida ya pasó: nadie reservó y no ocupa al conductor (no hay cómo cancelarlo ni expirarlo aún).
+          NOT: {
+            estado: EstadoViaje.publicado,
+            fechaHoraSalida: { lte: new Date() },
+          },
           fechaHoraSalida: {
             gt: new Date(salida.getTime() - MARGEN_SOLAPE_MS),
             lt: new Date(salida.getTime() + MARGEN_SOLAPE_MS),

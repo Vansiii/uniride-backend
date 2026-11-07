@@ -42,6 +42,7 @@
   "viajes.publicar.cupos_exceden_capacidad": "Ofreces más cupos que los asientos para pasajeros de tu vehículo.",
   "viajes.publicar.precio_invalido": "El precio por asiento está fuera de los límites de tu organización.",
   "viajes.publicar.horario_invalido": "La salida debe ser dentro de al menos 15 minutos y como máximo 7 días.",
+  "viajes.publicar.lugares_iguales": "El punto de encuentro y el destino no pueden ser el mismo lugar.",
   "viajes.publicar.viaje_solapado": "Ya tienes un viaje activo a menos de 2 horas de esa salida.",
   "viajes.detalle.no_encontrado": "No encontramos ese viaje.",
   "identidad.verificacion.prueba_vida_fallida": "No pudimos confirmar que eres una persona real. Repite la prueba de vida con buena luz, sin fotos ni pantallas.",

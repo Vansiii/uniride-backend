@@ -297,6 +297,28 @@ describe('HU-17 · publicar viaje (e2e)', () => {
       },
     );
 
+    it('un viaje sin reservas cuya salida ya pasó no ocupa; uno reservado sí', async () => {
+      const c = await v.conductor(org.id);
+      await v.publicar(c).expect(201);
+      await e.bd.query(
+        `UPDATE viajes SET fecha_hora_salida = now() - interval '30 minutes' WHERE conductor_id = $1`,
+        [c.id],
+      );
+      const pronto = cuerpoViaje({
+        fechaHoraSalida: new Date(Date.now() + 20 * MINUTO_MS).toISOString(),
+      });
+      await e.bd.query(
+        `UPDATE viajes SET estado = 'reservado' WHERE conductor_id = $1`,
+        [c.id],
+      );
+      await v.publicar(c, pronto).expect(409);
+      await e.bd.query(
+        `UPDATE viajes SET estado = 'publicado' WHERE conductor_id = $1`,
+        [c.id],
+      );
+      await v.publicar(c, pronto).expect(201);
+    });
+
     it('otro conductor en el mismo horario no se ve afectado', async () => {
       const c1 = await v.conductor(org.id);
       const c2 = await v.conductor(org.id);
@@ -382,6 +404,28 @@ describe('HU-17 · publicar viaje (e2e)', () => {
       const c = await v.conductor(org.id);
       await v.publicar(c, cuerpoViaje(malo)).expect(400);
       await nadaPublicado(c);
+    });
+
+    it('origen y destino con las mismas coordenadas: 400 LUGARES_IGUALES', async () => {
+      const c = await v.conductor(org.id);
+      const { origenLat, origenLng } = cuerpoViaje();
+      const r = await v
+        .publicar(
+          c,
+          cuerpoViaje({ destinoLat: origenLat, destinoLng: origenLng }),
+        )
+        .expect(400);
+      expect(r.body.codigo).toBe('LUGARES_IGUALES');
+      await nadaPublicado(c);
+    });
+
+    it('un nombre con el carácter NUL no llega a PostgreSQL: se guarda sin él', async () => {
+      const c = await v.conductor(org.id);
+      await v
+        .publicar(c, cuerpoViaje({ origenNombre: 'Plaza\u0000 Central' }))
+        .expect(201);
+      const [fila] = await v.filas(c.id);
+      expect(fila.origen_nombre).toBe('Plaza Central');
     });
   });
 });

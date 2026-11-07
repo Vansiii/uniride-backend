@@ -70,7 +70,7 @@ export class ViajesController {
   @ApiBadRequestResponse({
     type: ErrorDto,
     description:
-      '`CUPOS_EXCEDEN_CAPACIDAD` (trae `maximo`), `PRECIO_FUERA_DE_RANGO` (trae `minimo` y `maximo`), `HORARIO_INVALIDO` (trae `minimoMinutos` y `maximoDias`) o `VALIDACION_FALLIDA`.',
+      '`CUPOS_EXCEDEN_CAPACIDAD` (trae `maximo`), `PRECIO_FUERA_DE_RANGO` (trae `minimo` y `maximo`), `HORARIO_INVALIDO` (trae `minimoMinutos` y `maximoDias`), `LUGARES_IGUALES` o `VALIDACION_FALLIDA`.',
   })
   @ApiUnauthorizedResponse({
     type: ErrorDto,
@@ -85,7 +85,7 @@ export class ViajesController {
   @ApiConflictResponse({
     type: ErrorDto,
     description:
-      '`VIAJE_SOLAPADO` (trae `margenHoras` y `salidaExistente`): otro viaje activo del conductor, en cualquiera de sus organizaciones, sale a menos de 2 horas.',
+      '`VIAJE_SOLAPADO` (trae `margenHoras` y `salidaExistente`): otro viaje activo del conductor, en cualquiera de sus organizaciones, sale a menos de 2 horas. Un viaje en `publicado` cuya salida ya pasó no cuenta.',
   })
   publicar(
     @UsuarioActual() usuario: UsuarioToken,
