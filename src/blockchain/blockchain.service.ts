@@ -2,29 +2,44 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   Contract,
   FetchRequest,
+  formatUnits,
   isAddress,
   JsonRpcProvider,
   Network,
+  parseUnits,
 } from 'ethers';
 
 /** Hardhat local y Polygon Amoy. Cualquier otra red, en especial una mainnet, no arranca (AGENTS.md §11). */
 const CADENAS_PERMITIDAS = [31337, 80002];
 const ID_AMOY = 80002;
 const EXPLORADOR_AMOY = 'https://amoy.polygonscan.com/address/';
+const EXPLORADOR_TX_AMOY = 'https://amoy.polygonscan.com/tx/';
 const TIEMPO_MAXIMO_MS = 5_000;
+const VIDA_CACHE_MS = 15_000;
 const ABI_SALDO = ['function balanceOf(address) view returns (uint256)'];
-const UNIDADES_POR_CENTAVO = 10n ** 16n; // URC tiene 18 decimales
+const DECIMALES_URC = 18;
+const UNIDADES_POR_CENTAVO = 10n ** 16n;
 
 export interface Cadena {
   /** Saldo en las unidades mínimas del token. Rechaza si el nodo falla o no es la red configurada. */
   leerSaldo(direccion: string): Promise<bigint>;
   exploradorUrl(direccion: string): string | null;
+  exploradorTxUrl(hashTx: string): string | null;
 }
 
 /** Trunca a 2 decimales: nunca muestra más saldo del que hay. */
 export function formatearUrc(unidades: bigint): string {
   const centavos = unidades / UNIDADES_POR_CENTAVO;
   return `${centavos / 100n}.${String(centavos % 100n).padStart(2, '0')}`;
+}
+
+/** Monto en URC ("15.00") a las unidades mínimas del token. */
+export function urcAUnidades(monto: string): bigint {
+  return parseUnits(monto, DECIMALES_URC);
+}
+
+export function unidadesAUrc(unidades: bigint): string {
+  return formatUnits(unidades, DECIMALES_URC);
 }
 
 export class CadenaReal implements Cadena {
@@ -62,6 +77,10 @@ export class CadenaReal implements Cadena {
   exploradorUrl(direccion: string): string | null {
     return this.cadenaId === ID_AMOY ? `${EXPLORADOR_AMOY}${direccion}` : null;
   }
+
+  exploradorTxUrl(hashTx: string): string | null {
+    return this.cadenaId === ID_AMOY ? `${EXPLORADOR_TX_AMOY}${hashTx}` : null;
+  }
 }
 
 /** Solo pruebas y desarrollo: toda dirección tiene saldo 0 y no hay nodo. */
@@ -77,6 +96,10 @@ export class CadenaSimulada implements Cadena {
   }
 
   exploradorUrl(): string | null {
+    return null;
+  }
+
+  exploradorTxUrl(): string | null {
     return null;
   }
 }
@@ -104,9 +127,25 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
   return new CadenaReal(env.CADENA_RPC_URL, token, cadenaId);
 }
 
+function conTiempoMaximo<T>(promesa: Promise<T>): Promise<T> {
+  let reloj: NodeJS.Timeout;
+  const vencida = new Promise<never>((_, rechazar) => {
+    reloj = setTimeout(
+      () => rechazar(new Error('El nodo no respondió a tiempo')),
+      TIEMPO_MAXIMO_MS,
+    );
+  });
+  return Promise.race([promesa, vencida]).finally(() => clearTimeout(reloj));
+}
+
 @Injectable()
 export class BlockchainService implements OnModuleInit {
   private actual?: Cadena;
+  // ponytail: por proceso y una entrada por billetera consultada; con varias instancias cada una lee por su cuenta.
+  private readonly cache = new Map<
+    string,
+    { saldo: bigint; venceEn: number }
+  >();
 
   /** Una mala configuración detiene el arranque; en pruebas se elige al primer uso. */
   onModuleInit(): void {
@@ -120,5 +159,21 @@ export class BlockchainService implements OnModuleInit {
   /** Reemplazable en pruebas. */
   set cadena(cadena: Cadena) {
     this.actual = cadena;
+    this.cache.clear();
+  }
+
+  /**
+   * Para `/saldo` (HU-14): no satura el RPC y nunca espera más que el tiempo máximo, aunque el nodo se cuelgue.
+   * `real` indica si este saldo acaba de salir de la cadena. Rechaza si el nodo falla o no responde a tiempo.
+   */
+  async leerSaldoConCache(
+    direccion: string,
+  ): Promise<{ saldo: bigint; real: boolean }> {
+    const guardado = this.cache.get(direccion);
+    if (guardado && Date.now() < guardado.venceEn)
+      return { saldo: guardado.saldo, real: false };
+    const saldo = await conTiempoMaximo(this.cadena.leerSaldo(direccion));
+    this.cache.set(direccion, { saldo, venceEn: Date.now() + VIDA_CACHE_MS });
+    return { saldo, real: true };
   }
 }

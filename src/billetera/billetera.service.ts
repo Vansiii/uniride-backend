@@ -20,13 +20,13 @@ const noDisponible = () =>
 
 /** Solo id y dirección: `llave_custodia_ref` no sale de `crear` (A-12). */
 const COLUMNAS_PUBLICAS = { id: true, direccion: true } as const;
-interface FilaPublica {
+export interface FilaPublica {
   id: string;
   direccion: string;
 }
 
 /** Tipo de error sin su mensaje: el de ethers lleva la URL del nodo y el de la BD puede traer la fila. */
-const tipoDeError = (error: unknown) => {
+export const tipoDeError = (error: unknown) => {
   const { code, name } = (error ?? {}) as { code?: unknown; name?: unknown };
   return String(code ?? name ?? 'Error');
 };
@@ -105,6 +105,10 @@ export class BilleteraService implements OnModuleInit {
   }
 
   async mia(usuarioId: string): Promise<BilleteraDto> {
+    return this.aDto(await this.exigir(usuarioId));
+  }
+
+  async exigir(usuarioId: string): Promise<FilaPublica> {
     const fila = await this.buscar(usuarioId);
     if (!fila)
       throw new ErrorNegocio(
@@ -112,7 +116,7 @@ export class BilleteraService implements OnModuleInit {
         'BILLETERA_NO_ENCONTRADA',
         'billetera.consulta.no_encontrada',
       );
-    return this.aDto(fila);
+    return fila;
   }
 
   /**
