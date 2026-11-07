@@ -165,6 +165,16 @@ describe('HU-18 · buscar viajes (e2e)', () => {
       const d = await v.detalle(pasajero, id).expect(200);
       expect(d.body.conductor).toEqual({ nombre: 'Juan' });
     });
+
+    it('el detalle da los cupos totales además de los libres («2 de 3»)', async () => {
+      const { id } = await publicarEn(nuevaLat());
+      await e.bd.query(
+        `UPDATE viajes SET cupos_disponibles = 2 WHERE id = $1`,
+        [id],
+      );
+      const d = await v.detalle(pasajero, id).expect(200);
+      expect(d.body).toMatchObject({ cuposTotales: 3, cuposDisponibles: 2 });
+    });
   });
 
   describe('CA-4 · lo que ya no se puede tomar no aparece', () => {

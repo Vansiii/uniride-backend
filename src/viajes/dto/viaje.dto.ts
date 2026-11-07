@@ -231,6 +231,8 @@ export class DetalleViajeDto {
   conductor!: ConductorPublicoDto;
   @ApiProperty({ type: VehiculoPublicoDto })
   vehiculo!: VehiculoPublicoDto;
+  @ApiProperty({ type: 'integer', description: 'Para mostrar «2 de 3».' })
+  cuposTotales!: number;
   @ApiProperty({ type: 'integer' })
   cuposDisponibles!: number;
   @ApiProperty()

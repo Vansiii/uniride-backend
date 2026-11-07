@@ -93,6 +93,7 @@ describe('HU-17 · publicar viaje (e2e)', () => {
         fechaHoraSalida: cuerpo.fechaHoraSalida,
         conductor: { nombre: 'Prueba' },
         vehiculo: expect.objectContaining({ marca: 'Toyota', color: 'Blanco' }),
+        cuposTotales: 3,
         cuposDisponibles: 3,
         precioPorAsiento: 10.5,
         estado: 'publicado',
