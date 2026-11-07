@@ -35,6 +35,7 @@ model Usuario {
   dispositivo    Dispositivo?
   billetera      Billetera?
   ordenesRecarga OrdenRecarga[]
+  viajes         Viaje[]
 
   @@map("usuarios")
 }
@@ -86,6 +87,7 @@ model Organizacion {
   membresias   Membresia[]
   invitaciones Invitacion[]
   dominios     DominioOrganizacion[]
+  viajes       Viaje[]
 
   @@map("organizaciones")
 }
@@ -178,8 +180,52 @@ model Vehiculo {
   creadoEn             DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   propietario Usuario @relation(fields: [propietarioId], references: [id])
+  viajes      Viaje[]
 
   @@map("vehiculos")
+}
+
+// --- HU-17: publicar viaje ---
+
+/// Máquina de estados del viaje (`AGENTS.md` §5.9): el servidor controla las transiciones.
+enum EstadoViaje {
+  publicado
+  reservado
+  en_curso
+  verificado
+  pagado
+  cancelado
+  expirado
+
+  @@map("estado_viaje")
+}
+
+/// Dato institucional con RLS (A-13). Los CHECK de cupos, precio y coordenadas están en la migración.
+model Viaje {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId   String      @map("organizacion_id") @db.Uuid
+  conductorId      String      @map("conductor_id") @db.Uuid
+  vehiculoId       String      @map("vehiculo_id") @db.Uuid
+  origenNombre     String      @map("origen_nombre")
+  origenLat        Decimal     @map("origen_lat") @db.Decimal(9, 6)
+  origenLng        Decimal     @map("origen_lng") @db.Decimal(9, 6)
+  destinoNombre    String      @map("destino_nombre")
+  destinoLat       Decimal     @map("destino_lat") @db.Decimal(9, 6)
+  destinoLng       Decimal     @map("destino_lng") @db.Decimal(9, 6)
+  fechaHoraSalida  DateTime    @map("fecha_hora_salida") @db.Timestamptz(3)
+  cuposTotales     Int         @map("cupos_totales")
+  cuposDisponibles Int         @map("cupos_disponibles")
+  precioPorAsiento Decimal     @map("precio_por_asiento") @db.Decimal(12, 2)
+  estado           EstadoViaje @default(publicado)
+  creadoEn         DateTime    @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  conductor    Usuario      @relation(fields: [conductorId], references: [id])
+  vehiculo     Vehiculo     @relation(fields: [vehiculoId], references: [id])
+
+  @@index([organizacionId, estado, fechaHoraSalida])
+  @@index([conductorId, fechaHoraSalida])
+  @@map("viajes")
 }
 
 // --- HU-08: verificación de identidad ---
