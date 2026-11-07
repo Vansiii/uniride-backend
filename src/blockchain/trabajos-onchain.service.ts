@@ -99,46 +99,46 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     );
     const { usuarioId, direccion } = movimiento.billetera;
 
-    let hashTx: string;
+    // Con la cadena o con la BD: cualquier falla suma un intento y llega a la alerta. Si ya se acuñó, el reintento no
+    // acuña otra vez y solo repite el registro.
     try {
-      hashTx = await this.blockchain.cadena.acunarRecarga(
+      const hashTx = await this.blockchain.cadena.acunarRecarga(
         direccion,
         urcAUnidades(movimiento.monto.toFixed(2)),
         id(ordenId),
       );
+      await this.prisma.$transaction(async (tx) => {
+        await this.movimientos.actualizarEstado(
+          movimiento.id,
+          'confirmado',
+          hashTx,
+          tx,
+        );
+        await tx.ordenRecarga.update({
+          where: { id: ordenId },
+          data: { estado: 'completada', hashTx, completadaEn: new Date() },
+        });
+        await tx.trabajoOnchain.update({
+          where: { id: trabajo.id },
+          data: { estado: 'terminado', ultimoError: null },
+        });
+        await this.auditoria.registrar(
+          {
+            accion: 'billetera.recarga.acreditada',
+            entidad: 'orden_recarga',
+            entidadId: ordenId,
+            resultado: 'ok',
+            actorId: usuarioId,
+            detalle: { monto: movimiento.monto.toFixed(2), hashTx },
+          },
+          tx,
+        );
+      });
+      return true;
     } catch (error) {
       await this.registrarFalla(trabajo, ordenId, usuarioId, error);
       return false;
     }
-
-    await this.prisma.$transaction(async (tx) => {
-      await this.movimientos.actualizarEstado(
-        movimiento.id,
-        'confirmado',
-        hashTx,
-        tx,
-      );
-      await tx.ordenRecarga.update({
-        where: { id: ordenId },
-        data: { estado: 'completada', hashTx, completadaEn: new Date() },
-      });
-      await tx.trabajoOnchain.update({
-        where: { id: trabajo.id },
-        data: { estado: 'terminado', ultimoError: null },
-      });
-      await this.auditoria.registrar(
-        {
-          accion: 'billetera.recarga.acreditada',
-          entidad: 'orden_recarga',
-          entidadId: ordenId,
-          resultado: 'ok',
-          actorId: usuarioId,
-          detalle: { monto: movimiento.monto.toFixed(2), hashTx },
-        },
-        tx,
-      );
-    });
-    return true;
   }
 
   /** Espera creciente hasta 1 h. Solo el tipo de error: el mensaje de ethers lleva la URL del nodo. */

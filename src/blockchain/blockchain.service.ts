@@ -116,6 +116,8 @@ export class CadenaReal implements Cadena {
     if (await this.token.ordenAcunada(idOrden))
       return this.hashDeAcunacion(this.token, idOrden);
     const token = this.token.connect(this.relayer) as Contract;
+    // ponytail: una confirmación y sin reemplazar una transacción atascada; sirve con el relayer de desarrollo. SP129 agrega
+    // N confirmaciones y reemplazo con más gas antes de usar el firmante real.
     const tx = await token.acunarRecarga(destino, monto, idOrden);
     await tx.wait(1, TIEMPO_RECIBO_MS);
     return tx.hash as string;

@@ -88,6 +88,21 @@ describe('TrabajosOnchainService', () => {
     expect(c.tx.ordenRecarga.update).not.toHaveBeenCalled();
   });
 
+  it('si la BD falla tras acuñar, suma un intento y sigue con el resto del lote', async () => {
+    const c = crear(4);
+    c.cadena.acunarRecarga.mockResolvedValue(HASH);
+    c.prisma.$transaction.mockImplementationOnce(() =>
+      Promise.reject(new Error('BD caída')),
+    );
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(0);
+    expect(datosDeFalla(c).intentos).toBe(5);
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: 'billetera.recarga.atascada' }),
+      c.tx,
+    );
+    expect(c.prisma.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
   it('el error guardado no lleva la URL del nodo', async () => {
     const c = crear();
     await c.servicio.procesarPendientes();
