@@ -96,7 +96,9 @@ describe('ViajesService.publicar', () => {
   });
 
   it('un viaje solapado no se crea', async () => {
-    const { servicio, tx } = crear({ solapado: { id: 'otro' } });
+    const { servicio, tx } = crear({
+      solapado: { fechaHoraSalida: new Date() },
+    });
     expect(await codigoDe(servicio.publicar(CONDUCTOR, ORG, dto()))).toBe(
       'VIAJE_SOLAPADO',
     );
