@@ -1,4 +1,5 @@
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
+import type { BilleteraService } from '../billetera/billetera.service.js';
 import { AlmacenamientoService } from '../comun/almacenamiento.service.js';
 import { MotorFacialSimulado } from '../comun/motor-facial-simulado.js';
 import { PrismaService } from '../comun/prisma.service.js';
@@ -64,6 +65,7 @@ function crear(o: Opciones = {}) {
     subir: vi.fn().mockResolvedValue(undefined),
     borrar: vi.fn().mockResolvedValue(undefined),
   };
+  const billetera = { crearAutomatica: vi.fn().mockResolvedValue(undefined) };
   const motor = new MotorFacialSimulado();
   const espias = {
     liveness: vi.spyOn(motor, 'obtenerResultadoLiveness'),
@@ -77,9 +79,11 @@ function crear(o: Opciones = {}) {
     auditoria as unknown as AuditoriaService,
     almacenamiento as unknown as AlmacenamientoService,
     { motor } as unknown as RekognitionService,
+    billetera as unknown as BilleteraService,
   );
   return {
     servicio,
+    billetera,
     identidad,
     prisma,
     auditoria,

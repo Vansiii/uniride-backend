@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
+import { BilleteraService } from '../billetera/billetera.service.js';
 import { AlmacenamientoService } from '../comun/almacenamiento.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import {
@@ -102,6 +103,7 @@ export class IdentidadService implements OnModuleInit {
     private readonly auditoria: AuditoriaService,
     private readonly almacenamiento: AlmacenamientoService,
     private readonly rekognition: RekognitionService,
+    private readonly billetera: BilleteraService,
   ) {}
 
   /** Sin `IDENTIDAD_SECRETO` el arranque falla (salvo en pruebas, donde el helper lo define). */
@@ -208,6 +210,7 @@ export class IdentidadService implements OnModuleInit {
       throw error;
     }
 
+    let verificacion: VerificacionDto;
     try {
       // Dos cuentas con el mismo rostro a la vez pasan la búsqueda previa sin verse: tras indexar, la que
       // indexó después sí ve a la otra. Nunca quedan las dos verificadas (A-02); como mucho se rechazan ambas.
@@ -215,7 +218,7 @@ export class IdentidadService implements OnModuleInit {
         await this.motor((m) => m.buscarRostroDuplicado(foto.buffer, usuarioId))
       )
         throw await this.rechazar(usuarioId, 'rostro_duplicado');
-      return await this.guardar(usuarioId, {
+      verificacion = await this.guardar(usuarioId, {
         documentoHash,
         similitud,
         clave,
@@ -233,6 +236,9 @@ export class IdentidadService implements OnModuleInit {
       );
       throw noDisponible();
     }
+    // HU-12 CA-1: fuera del try, porque una falla de la billetera no revierte la verificación.
+    await this.billetera.crearAutomatica(usuarioId);
+    return verificacion;
   }
 
   /** CA-8: solo estado y fechas. Un bloqueo vencido se informa como `no_verificada`. */
