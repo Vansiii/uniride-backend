@@ -19,6 +19,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { CuentaActivaGuard } from '../billetera/cuenta-activa.guard.js';
 import {
   OrganizacionActual,
   UsuarioActual,
@@ -46,7 +47,12 @@ export class ViajesController {
 
   /** La firma va al final: una petición que se rechazará por otro motivo no gasta su nonce. */
   @Post()
-  @UseGuards(OrganizacionGuard, IdentidadVerificadaGuard, FirmaDispositivoGuard)
+  @UseGuards(
+    OrganizacionGuard,
+    CuentaActivaGuard,
+    IdentidadVerificadaGuard,
+    FirmaDispositivoGuard,
+  )
   @ApiHeader({
     name: 'X-Dispositivo-Id',
     description: 'Dispositivo vinculado.',
@@ -74,7 +80,7 @@ export class ViajesController {
   @ApiForbiddenResponse({
     type: ErrorDto,
     description:
-      '`NO_AUTORIZADO` (sin membresía aprobada), `IDENTIDAD_NO_VERIFICADA` o `CONDUCTOR_SIN_VEHICULO`.',
+      '`NO_AUTORIZADO` (sin membresía aprobada), `CUENTA_SUSPENDIDA`, `IDENTIDAD_NO_VERIFICADA` o `CONDUCTOR_SIN_VEHICULO`.',
   })
   @ApiConflictResponse({
     type: ErrorDto,
@@ -96,13 +102,17 @@ export class ViajesController {
     return this.servicio.misViajes(usuario.id);
   }
 
-  /** Para mostrar el tope como ayuda antes de fallar; quien decide sigue siendo `POST /viajes`. Va antes de `:id`. */
+  /**
+   * Para mostrar el tope como ayuda antes de fallar; quien decide sigue siendo `POST /viajes`. Va antes de `:id`.
+   * Rechaza la cuenta suspendida para que la app lo sepa al abrir el formulario: firmar pide la huella antes de enviar.
+   */
   @Get('limites')
-  @UseGuards(OrganizacionGuard)
+  @UseGuards(OrganizacionGuard, CuentaActivaGuard)
   @ApiOkResponse({ type: LimitesViajeDto })
   @ApiForbiddenResponse({
     type: ErrorDto,
-    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+    description:
+      '`NO_AUTORIZADO` (sin membresía aprobada) o `CUENTA_SUSPENDIDA`.',
   })
   limites(
     @OrganizacionActual() organizacionId: string,

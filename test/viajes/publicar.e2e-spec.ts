@@ -345,6 +345,23 @@ describe('HU-17 · publicar viaje (e2e)', () => {
       await nadaPublicado(c);
     });
 
+    it('cuenta suspendida: 403 CUENTA_SUSPENDIDA al publicar y al pedir los límites', async () => {
+      const c = await v.conductor(org.id);
+      await e.bd.query(
+        `UPDATE usuarios SET suspendida_en = now() WHERE id = $1`,
+        [c.id],
+      );
+      const r = await v.publicar(c).expect(403);
+      expect(r.body.codigo).toBe('CUENTA_SUSPENDIDA');
+      await nadaPublicado(c);
+      const limites = await e
+        .api()
+        .get('/api/v1/viajes/limites')
+        .set(v.conToken(c.token))
+        .expect(403);
+      expect(limites.body.codigo).toBe('CUENTA_SUSPENDIDA');
+    });
+
     it('membresía sin aprobar: 403 NO_AUTORIZADO', async () => {
       const c = await v.conductor(org.id, { membresia: 'pendiente' });
       const r = await v.publicar(c).expect(403);

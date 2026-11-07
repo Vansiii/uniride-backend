@@ -56,7 +56,7 @@
   "identidad.verificacion.ya_verificada": "Tu identidad ya está verificada.",
   "identidad.verificacion.requerida": "Debes verificar tu identidad para realizar esta acción.",
   "billetera.creacion.servicio_no_disponible": "No pudimos conectar con la red de tu billetera. Inténtalo de nuevo en unos minutos.",
-  "billetera.creacion.cuenta_suspendida": "Tu cuenta está suspendida. No puedes usar la billetera.",
+  "billetera.creacion.cuenta_suspendida": "Tu cuenta está suspendida. No puedes realizar esta acción.",
   "billetera.consulta.no_encontrada": "Todavía no tienes una billetera.",
   "billetera.recarga.monto_fuera_de_rango": "El monto de recarga debe estar entre 10 y 500 Bs.",
   "billetera.recarga.monto_invalido": "El monto puede tener hasta 2 decimales.",
