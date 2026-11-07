@@ -243,7 +243,7 @@ model Billetera {
   @@map("billeteras")
 }
 
-/// Libro mayor (HU-14): solo inserción; de una fila ya escrita solo cambian `estado` y `hashTx` (trigger y GRANT en la migración).
+/// Libro mayor (HU-14): solo inserción; de una fila ya escrita solo cambian `estado` y `hashTx`, y una vez confirmada ya no (trigger y GRANT en la migración).
 model MovimientoBilletera {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   billeteraId       String   @map("billetera_id") @db.Uuid

@@ -1,5 +1,6 @@
 -- HU-14: libro mayor de la billetera (RN-1). Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño en la API.
 -- Solo inserción: de una fila ya escrita solo cambian `estado` y `hash_tx` (trigger y GRANT), y la API no tiene DELETE (A-09).
+-- Lo confirmado queda congelado: una corrección posterior es un movimiento nuevo.
 
 CREATE TABLE "movimientos_billetera" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -37,6 +38,9 @@ LANGUAGE plpgsql AS $$
 BEGIN
   IF (to_jsonb(NEW) - 'estado' - 'hash_tx') IS DISTINCT FROM (to_jsonb(OLD) - 'estado' - 'hash_tx') THEN
     RAISE EXCEPTION 'movimientos_billetera es de solo inserción: solo cambian estado y hash_tx';
+  END IF;
+  IF OLD."estado" = 'confirmado' AND (NEW."estado", NEW."hash_tx") IS DISTINCT FROM (OLD."estado", OLD."hash_tx") THEN
+    RAISE EXCEPTION 'un movimiento confirmado no cambia: una corrección es un movimiento nuevo';
   END IF;
   RETURN NEW;
 END $$;

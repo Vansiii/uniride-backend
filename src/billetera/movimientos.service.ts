@@ -57,7 +57,7 @@ export class MovimientosService {
     return { movimiento, creado: count === 1 };
   }
 
-  /** Lo único que cambia de un movimiento ya escrito; la BD exige `hashTx` para confirmarlo (RN-3). */
+  /** Lo único que cambia de un movimiento ya escrito; la BD exige `hashTx` para confirmarlo (RN-3) y rechaza cambiar uno confirmado. */
   actualizarEstado(
     id: string,
     estado: EstadoMovimiento,

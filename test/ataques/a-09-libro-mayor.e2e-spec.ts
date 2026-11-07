@@ -160,6 +160,51 @@ describe('A-09 · libro mayor inmutable (e2e)', () => {
       expect(rowCount).toBe(1);
     });
 
+    describe('lo confirmado queda congelado, con el rol de la API', () => {
+      const actualizar = (asignacion: string, ...valores: string[]) =>
+        api.query(
+          `UPDATE movimientos_billetera SET ${asignacion} WHERE id = $1`,
+          [id, ...valores],
+        );
+      const fila = async () =>
+        (
+          await e.bd.query(
+            `SELECT estado, hash_tx FROM movimientos_billetera WHERE id = $1`,
+            [id],
+          )
+        ).rows[0];
+      beforeEach(() => actualizar(`estado = 'confirmado', hash_tx = $2`, HASH));
+
+      it.each([
+        ['revertir a pendiente', `estado = 'pendiente'`],
+        ['pasar a fallido', `estado = 'fallido'`],
+        ['borrarle el hash y revertir', `estado = 'pendiente', hash_tx = NULL`],
+        ['cambiarle el hash', `hash_tx = '0x${'cd'.repeat(32)}'`],
+      ])('%s: rechazado', async (_, asignacion) => {
+        await expect(actualizar(asignacion)).rejects.toThrow(
+          'un movimiento confirmado no cambia',
+        );
+        expect(await fila()).toEqual({ estado: 'confirmado', hash_tx: HASH });
+      });
+
+      it('tampoco por el servicio', async () => {
+        await expect(
+          servicio.actualizarEstado(id, 'fallido'),
+        ).rejects.toThrow();
+        expect(await fila()).toEqual({ estado: 'confirmado', hash_tx: HASH });
+      });
+    });
+
+    it('los demás caminos siguen abiertos: pendiente → fallido → pendiente → confirmado', async () => {
+      for (const estado of ['fallido', 'pendiente'] as const)
+        await expect(
+          servicio.actualizarEstado(id, estado),
+        ).resolves.toMatchObject({ estado });
+      await expect(
+        servicio.actualizarEstado(id, 'confirmado', HASH),
+      ).resolves.toMatchObject({ estado: 'confirmado', hashTx: HASH });
+    });
+
     it('sin hash no se confirma; con hash mal formado tampoco', async () => {
       await expect(
         servicio.actualizarEstado(id, 'confirmado'),
