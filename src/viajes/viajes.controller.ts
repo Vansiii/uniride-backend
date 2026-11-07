@@ -30,6 +30,7 @@ import { OrganizacionGuard } from '../comun/organizacion.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import {
   DetalleViajeDto,
+  LimitesViajeDto,
   MiViajeDto,
   PublicarViajeDto,
   ViajePublicadoDto,
@@ -93,6 +94,20 @@ export class ViajesController {
   @ApiOkResponse({ type: MiViajeDto, isArray: true })
   misViajes(@UsuarioActual() usuario: UsuarioToken): Promise<MiViajeDto[]> {
     return this.servicio.misViajes(usuario.id);
+  }
+
+  /** Para mostrar el tope como ayuda antes de fallar; quien decide sigue siendo `POST /viajes`. Va antes de `:id`. */
+  @Get('limites')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({ type: LimitesViajeDto })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  limites(
+    @OrganizacionActual() organizacionId: string,
+  ): Promise<LimitesViajeDto> {
+    return this.servicio.limites(organizacionId);
   }
 
   @Get(':id')

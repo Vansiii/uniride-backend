@@ -82,6 +82,19 @@ export class PublicarViajeDto {
   precioPorAsiento!: number;
 }
 
+export class LimitesViajeDto {
+  @ApiProperty({
+    example: 1,
+    description: 'Precio mínimo por asiento, en URC.',
+  })
+  precioMinimo!: number;
+  @ApiProperty({
+    example: 20,
+    description: 'Tope por asiento de la organización activa, en URC.',
+  })
+  precioMaximo!: number;
+}
+
 export class ViajePublicadoDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;

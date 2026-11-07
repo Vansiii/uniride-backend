@@ -176,6 +176,23 @@ describe('HU-17 · publicar viaje (e2e)', () => {
       );
       const c = await v.conductor(cara.id);
       await v.publicar(c, cuerpoViaje({ precioPorAsiento: 30 })).expect(201);
+
+      const limites = await e
+        .api()
+        .get('/api/v1/viajes/limites')
+        .set(v.conToken(c.token))
+        .expect(200);
+      expect(limites.body).toEqual({ precioMinimo: 1, precioMaximo: 50 });
+    });
+
+    it('los límites piden membresía aprobada', async () => {
+      const c = await v.conductor(org.id, { membresia: 'pendiente' });
+      const r = await e
+        .api()
+        .get('/api/v1/viajes/limites')
+        .set(v.conToken(c.token))
+        .expect(403);
+      expect(r.body.codigo).toBe('NO_AUTORIZADO');
     });
   });
 

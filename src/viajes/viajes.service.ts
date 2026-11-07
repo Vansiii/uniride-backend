@@ -5,6 +5,7 @@ import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
 import type {
   DetalleViajeDto,
+  LimitesViajeDto,
   MiViajeDto,
   PublicarViajeDto,
   ViajePublicadoDto,
@@ -34,6 +35,19 @@ export class ViajesService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  limites(organizacionId: string): Promise<LimitesViajeDto> {
+    return this.prisma.enOrganizacion(organizacionId, async (tx) => {
+      const { precioMaximoUrc } = await tx.organizacion.findUniqueOrThrow({
+        where: { id: organizacionId },
+        select: { precioMaximoUrc: true },
+      });
+      return {
+        precioMinimo: PRECIO_MINIMO_URC,
+        precioMaximo: Number(precioMaximoUrc),
+      };
+    });
+  }
 
   async publicar(
     conductorId: string,
