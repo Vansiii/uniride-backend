@@ -116,15 +116,19 @@ export class ViajesService {
             lt: new Date(salida.getTime() + MARGEN_SOLAPE_MS),
           },
         },
-        select: { id: true },
+        select: { fechaHoraSalida: true },
       });
       await tx.$executeRaw`SELECT set_config('app.super_admin', '', true)`;
+      // Es su propio viaje, aunque esté en otra organización: solo se le dice a él cuándo sale.
       if (solapado)
         throw new ErrorNegocio(
           409,
           'VIAJE_SOLAPADO',
           'viajes.publicar.viaje_solapado',
-          { margenHoras: MARGEN_SOLAPE_MS / HORA_MS },
+          {
+            margenHoras: MARGEN_SOLAPE_MS / HORA_MS,
+            salidaExistente: solapado.fechaHoraSalida.toISOString(),
+          },
         );
 
       const viaje = await tx.viaje.create({

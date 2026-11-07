@@ -85,7 +85,7 @@ export class ViajesController {
   @ApiConflictResponse({
     type: ErrorDto,
     description:
-      '`VIAJE_SOLAPADO` (trae `margenHoras`): otro viaje activo del conductor, en cualquiera de sus organizaciones, sale a menos de 2 horas.',
+      '`VIAJE_SOLAPADO` (trae `margenHoras` y `salidaExistente`): otro viaje activo del conductor, en cualquiera de sus organizaciones, sale a menos de 2 horas.',
   })
   publicar(
     @UsuarioActual() usuario: UsuarioToken,

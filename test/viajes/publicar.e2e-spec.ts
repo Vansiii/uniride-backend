@@ -256,6 +256,7 @@ describe('HU-17 · publicar viaje (e2e)', () => {
         expect(r.body).toMatchObject({
           codigo: 'VIAJE_SOLAPADO',
           margenHoras: 2,
+          salidaExistente: salidaA(0).fechaHoraSalida,
         });
         expect(await v.filas(c.id)).toHaveLength(1);
       },
