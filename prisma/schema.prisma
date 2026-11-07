@@ -34,6 +34,7 @@ model Usuario {
   identidad      Identidad?
   dispositivo    Dispositivo?
   billetera      Billetera?
+  ordenesRecarga OrdenRecarga[]
 
   @@map("usuarios")
 }
@@ -239,6 +240,7 @@ model Billetera {
 
   usuario     Usuario               @relation(fields: [usuarioId], references: [id])
   movimientos MovimientoBilletera[]
+  ordenes     OrdenRecarga[]
 
   @@map("billeteras")
 }
@@ -256,11 +258,48 @@ model MovimientoBilletera {
   metadatos         Json?
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
-  billetera Billetera @relation(fields: [billeteraId], references: [id])
+  billetera Billetera       @relation(fields: [billeteraId], references: [id])
+  trabajo   TrabajoOnchain?
 
   @@index([billeteraId, creadoEn(sort: Desc)])
   @@index([reservaId])
   @@map("movimientos_billetera")
+}
+
+/// HU-13: dato personal, se protege por dueño. Su movimiento lleva la clave `recarga:<id>`.
+model OrdenRecarga {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId    String    @map("usuario_id") @db.Uuid
+  billeteraId  String    @map("billetera_id") @db.Uuid
+  monto        Decimal   @db.Decimal(12, 2)
+  estado       String    @default("pendiente")
+  hashTx       String?   @map("hash_tx")
+  expiraEn     DateTime  @map("expira_en") @db.Timestamptz(3)
+  completadaEn DateTime? @map("completada_en") @db.Timestamptz(3)
+  creadoEn     DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id])
+  billetera Billetera @relation(fields: [billeteraId], references: [id])
+
+  @@index([usuarioId, expiraEn])
+  @@map("ordenes_recarga")
+}
+
+/// Cola on-chain (D-10): tabla interna, sin acceso de usuarios.
+model TrabajoOnchain {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  movimientoId     String   @unique @map("movimiento_id") @db.Uuid
+  operacion        String
+  intentos         Int      @default(0)
+  proximoIntentoEn DateTime @default(now()) @map("proximo_intento_en") @db.Timestamptz(3)
+  ultimoError      String?  @map("ultimo_error")
+  estado           String   @default("pendiente")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  movimiento MovimientoBilletera @relation(fields: [movimientoId], references: [id])
+
+  @@index([estado, proximoIntentoEn])
+  @@map("trabajos_onchain")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.

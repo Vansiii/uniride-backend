@@ -15,6 +15,7 @@ describe('A-09 · libro mayor inmutable (e2e)', () => {
   /** El rol con el que corre la API. `e.bd` es el dueño. */
   let api: pg.Client;
   let billeteraId: string;
+  let otraBilletera: string;
   let servicio: MovimientosService;
   const b = ayudasBilletera(() => e);
   const SIN_PERMISO = { code: '42501' };
@@ -26,6 +27,9 @@ describe('A-09 · libro mayor inmutable (e2e)', () => {
     await api.connect();
     const usuario = await e.crearUsuario(`a09${DOMINIO}`);
     ({ billetera: billeteraId } = await b.billetera(usuario));
+    ({ billetera: otraBilletera } = await b.billetera(
+      await e.crearUsuario(`a09otra${DOMINIO}`),
+    ));
     servicio = e.app.get(MovimientosService, { strict: false });
   });
   afterAll(async () => {
@@ -53,13 +57,43 @@ describe('A-09 · libro mayor inmutable (e2e)', () => {
       const primero = await servicio.registrar(nuevo(clave));
       const repetido = await servicio.registrar({
         ...nuevo(clave),
-        monto: '9999.00',
+        monto: '50.0',
       });
       expect(primero.creado).toBe(true);
       expect(repetido.creado).toBe(false);
       expect(repetido.movimiento.id).toBe(primero.movimiento.id);
       expect(repetido.movimiento.monto.toFixed(2)).toBe('50.00');
       expect(await cuenta(clave)).toBe(1);
+    });
+
+    it.each([
+      ['otro monto', () => ({ monto: '9999.00' })],
+      [
+        'otro tipo',
+        () => ({ tipo: 'liberacion_viaje' as const, reservaId: randomUUID() }),
+      ],
+      ['otra billetera', () => ({ billeteraId: otraBilletera })],
+    ])('con %s falla y no cambia el original', async (_, cambio) => {
+      const clave = randomUUID();
+      await servicio.registrar(nuevo(clave));
+      await expect(
+        servicio.registrar({ ...nuevo(clave), ...cambio() }),
+      ).rejects.toMatchObject({ codigo: 'CLAVE_IDEMPOTENCIA_EN_CONFLICTO' });
+      const { rows } = await e.bd.query(
+        `SELECT monto, tipo, billetera_id FROM movimientos_billetera WHERE clave_idempotencia = $1`,
+        [clave],
+      );
+      expect(rows).toEqual([
+        { monto: '50.00', tipo: 'recarga', billetera_id: billeteraId },
+      ]);
+    });
+
+    it('un monto con más de 2 decimales se rechaza, sin redondear', async () => {
+      const clave = randomUUID();
+      await expect(
+        servicio.registrar({ ...nuevo(clave), monto: '10.005' }),
+      ).rejects.toMatchObject({ codigo: 'MONTO_INVALIDO' });
+      expect(await cuenta(clave)).toBe(0);
     });
 
     it('peticiones simultáneas: solo una inserta', async () => {
@@ -195,14 +229,27 @@ describe('A-09 · libro mayor inmutable (e2e)', () => {
       });
     });
 
-    it('los demás caminos siguen abiertos: pendiente → fallido → pendiente → confirmado', async () => {
-      for (const estado of ['fallido', 'pendiente'] as const)
-        await expect(
-          servicio.actualizarEstado(id, estado),
-        ).resolves.toMatchObject({ estado });
+    it('pendiente pasa a fallido, y fallido es final: ni el servicio ni el rol de la API lo cambian', async () => {
+      await expect(
+        servicio.actualizarEstado(id, 'fallido'),
+      ).resolves.toMatchObject({ estado: 'fallido' });
+      await expect(
+        servicio.actualizarEstado(id, 'pendiente'),
+      ).rejects.toThrow();
       await expect(
         servicio.actualizarEstado(id, 'confirmado', HASH),
-      ).resolves.toMatchObject({ estado: 'confirmado', hashTx: HASH });
+      ).rejects.toThrow();
+      await expect(
+        api.query(
+          `UPDATE movimientos_billetera SET estado = 'confirmado', hash_tx = $2 WHERE id = $1`,
+          [id, HASH],
+        ),
+      ).rejects.toThrow('un movimiento fallido no cambia');
+      const { rows } = await e.bd.query(
+        `SELECT estado, hash_tx FROM movimientos_billetera WHERE id = $1`,
+        [id],
+      );
+      expect(rows[0]).toEqual({ estado: 'fallido', hash_tx: null });
     });
 
     it('sin hash no se confirma; con hash mal formado tampoco', async () => {

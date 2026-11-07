@@ -2,6 +2,7 @@ import type { BlockchainService } from '../blockchain/blockchain.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import type { PrismaService } from '../comun/prisma.service.js';
 import type { BilleteraService } from './billetera.service.js';
+import { Prisma } from '../generated/prisma/client.js';
 import { MovimientosService } from './movimientos.service.js';
 
 const URC = 10n ** 18n;
@@ -48,12 +49,47 @@ describe('MovimientosService', () => {
       });
     });
 
-    it('con clave repetida devuelve creado false', async () => {
+    const original = {
+      id: 'm1',
+      billeteraId: 'b1',
+      tipo: 'recarga',
+      monto: new Prisma.Decimal('10.00'),
+    };
+
+    it('con clave repetida y los mismos datos devuelve creado false', async () => {
       const c = crear();
       c.movimientoBilletera.createMany.mockResolvedValue({ count: 0 });
-      const r = await c.servicio.registrar(NUEVO);
-      expect(r.creado).toBe(false);
+      c.movimientoBilletera.findUniqueOrThrow.mockResolvedValue(original);
+      const r = await c.servicio.registrar({ ...NUEVO, monto: '10' });
+      expect(r).toEqual({ movimiento: original, creado: false });
     });
+
+    it.each([
+      ['otra billetera', { billeteraId: 'b2' }],
+      ['otro tipo', { tipo: 'reembolso_reserva' as const }],
+      ['otro monto', { monto: '10.01' }],
+    ])('con clave repetida y %s falla', async (_, cambio) => {
+      const c = crear();
+      c.movimientoBilletera.createMany.mockResolvedValue({ count: 0 });
+      c.movimientoBilletera.findUniqueOrThrow.mockResolvedValue(original);
+      await expect(
+        c.servicio.registrar({ ...NUEVO, ...cambio }),
+      ).rejects.toMatchObject({
+        codigo: 'CLAVE_IDEMPOTENCIA_EN_CONFLICTO',
+        status: 409,
+      });
+    });
+
+    it.each(['10.005', '-1', 'abc', '1e3', ''])(
+      'rechaza el monto %j sin tocar la BD',
+      async (monto) => {
+        const c = crear();
+        await expect(
+          c.servicio.registrar({ ...NUEVO, monto }),
+        ).rejects.toMatchObject({ codigo: 'MONTO_INVALIDO', status: 400 });
+        expect(c.movimientoBilletera.createMany).not.toHaveBeenCalled();
+      },
+    );
 
     it('usa la transacción de quien llama', async () => {
       const c = crear();
