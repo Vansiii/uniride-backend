@@ -69,11 +69,16 @@ export interface Dispositivo {
 const par = () => generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 
 let nonce = 0;
-/** Lo que haría la app: firma METODO, RUTA, TIMESTAMP, NONCE y SHA256(cuerpo vacío) con la llave del Keystore. */
-export function firmar(metodo: string, ruta: string, d: Dispositivo) {
+/** Lo que haría la app: firma METODO, RUTA, TIMESTAMP, NONCE y SHA256(cuerpo) con la llave del Keystore. */
+export function firmar(
+  metodo: string,
+  ruta: string,
+  d: Dispositivo,
+  cuerpo = '',
+) {
   const marca = String(Date.now());
   const n = `nonce-billetera-${marca}-${++nonce}`;
-  const mensaje = mensajeCanonico(metodo, ruta, marca, n, Buffer.alloc(0));
+  const mensaje = mensajeCanonico(metodo, ruta, marca, n, Buffer.from(cuerpo));
   return {
     'X-Dispositivo-Id': d.id,
     'X-Timestamp': marca,

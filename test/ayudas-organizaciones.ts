@@ -68,6 +68,9 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM registros_auditoria WHERE organizacion_id IN (${orgs}) OR actor_id IN (${usuarios})`,
     );
+    await bd.query(
+      `DELETE FROM viajes WHERE organizacion_id IN (${orgs}) OR conductor_id IN (${usuarios})`,
+    );
     await bd.query(`DELETE FROM membresias WHERE organizacion_id IN (${orgs})`);
     await bd.query(
       `DELETE FROM dominios_organizacion WHERE organizacion_id IN (${orgs})`,
