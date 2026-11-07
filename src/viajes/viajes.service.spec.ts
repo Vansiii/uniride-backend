@@ -34,6 +34,7 @@ function crear(o: { vehiculo?: object | null; solapado?: object | null } = {}) {
       create: vi.fn().mockResolvedValue(viaje),
     },
     $executeRaw: vi.fn().mockResolvedValue(1),
+    $queryRaw: vi.fn().mockResolvedValue([]),
   };
   const prisma = {
     vehiculo: {
@@ -147,5 +148,69 @@ describe('ViajesService.publicar', () => {
         servicio.publicar(CONDUCTOR, ORG, dto({ fechaHoraSalida })),
       ),
     ).toBe(esperado);
+  });
+});
+
+describe('ViajesService.buscar', () => {
+  const consulta = (extra: object = {}) => ({
+    origenLat: -17.78,
+    origenLng: -63.18,
+    horaSalida: new Date(Date.now() + HORA_MS).toISOString(),
+    ...extra,
+  });
+
+  it.each([
+    [{ origenLat: Number.NaN }],
+    [{ origenLat: 90.1 }],
+    [{ origenLng: -180.1 }],
+    [{ origenLng: undefined }],
+  ])('coordenadas %j: rechaza sin consultar', async (extra) => {
+    const { servicio, tx } = crear();
+    expect(await codigoDe(servicio.buscar(ORG, consulta(extra)))).toBe(
+      'COORDENADAS_INVALIDAS',
+    );
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['ya pasada', -31 * 60_000],
+    ['más allá de lo publicable', 7 * 24 * HORA_MS + 31 * 60_000],
+  ])('hora %s: lista vacía sin consultar', async (_, ms) => {
+    const { servicio, tx } = crear();
+    const horaSalida = new Date(Date.now() + ms).toISOString();
+    expect(await servicio.buscar(ORG, consulta({ horaSalida }))).toEqual([]);
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('proyecta la fila: nombre de pila, distancia a 2 decimales y sin reseñas', async () => {
+    const { servicio, tx } = crear();
+    tx.$queryRaw.mockResolvedValue([
+      {
+        id: 'v1',
+        origen_nombre: 'A',
+        distancia_km: 0.34567,
+        destino_nombre: 'B',
+        fecha_hora_salida: new Date(0),
+        cupos_disponibles: 2,
+        precio_por_asiento: new Prisma.Decimal('10.50'),
+        nombre_completo: '  Juan  Carlos Pérez ',
+        miembro_desde: new Date(0),
+        verificado: true,
+        placa: '1234ABC',
+        marca: 'Kia',
+        modelo: 'Rio',
+        color: 'Rojo',
+      },
+    ]);
+    const [viaje] = await servicio.buscar(ORG, consulta());
+    expect(viaje.distanciaKm).toBe(0.35);
+    expect(viaje.precioPorAsiento).toBe(10.5);
+    expect(viaje.conductor).toEqual({
+      nombre: 'Juan',
+      verificado: true,
+      calificacionPromedio: null,
+      esNuevo: true,
+      miembroDesde: new Date(0),
+    });
   });
 });
