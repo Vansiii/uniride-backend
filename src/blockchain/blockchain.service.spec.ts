@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { id, zeroPadValue } from 'ethers';
 import {
   BlockchainService,
   CadenaReal,
@@ -13,6 +14,11 @@ import {
 const TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 const DIRECCION = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const URC = 10n ** 18n;
+/** Primera cuenta de Hardhat: pública y sin valor. */
+const LLAVE =
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const ID_ORDEN = `0x${'11'.repeat(32)}`;
+const HASH = `0x${'ab'.repeat(32)}`;
 
 describe('formatearUrc', () => {
   it.each([
@@ -80,6 +86,16 @@ describe('crearCadena', () => {
     );
   });
 
+  it.each([
+    ['sin llave', {}],
+    ['con RELAYER_LLAVE_PRIVADA', { RELAYER_LLAVE_PRIVADA: LLAVE }],
+    ['con KMS_LLAVE_RELAYER_ID', { KMS_LLAVE_RELAYER_ID: 'alias/relayer' }],
+  ])('en producción no arranca sin el firmante KMS: %s', (_, extra) => {
+    expect(() =>
+      crearCadena({ ...valido, ...extra, NODE_ENV: 'production' }),
+    ).toThrow('firmante KMS');
+  });
+
   it('rechaza una DIRECCION_TOKEN_URC inválida en cualquier entorno', () => {
     expect(() =>
       crearCadena({ ...valido, DIRECCION_TOKEN_URC: '0x123' }),
@@ -99,6 +115,19 @@ describe('crearCadena', () => {
     await expect(crearCadena(vacia).leerSaldo(DIRECCION)).rejects.toThrow(
       'DIRECCION_TOKEN_URC',
     );
+  });
+});
+
+describe('CadenaSimulada', () => {
+  it('acuña una vez por orden: repetirla devuelve el mismo hash sin sumar', async () => {
+    const cadena = new CadenaSimulada();
+    const hash = await cadena.acunarRecarga(DIRECCION, URC, ID_ORDEN);
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(await cadena.acunarRecarga(DIRECCION, URC, ID_ORDEN)).toBe(hash);
+    expect(await cadena.leerSaldo(DIRECCION)).toBe(URC);
+    await cadena.acunarRecarga(DIRECCION, URC, `0x${'22'.repeat(32)}`);
+    expect(await cadena.leerSaldo(DIRECCION)).toBe(URC * 2n);
+    expect(await cadena.leerSaldo(TOKEN)).toBe(0n);
   });
 });
 
@@ -136,6 +165,7 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
     estado: number;
     colgado: boolean;
     llamadas: { metodo: string; a?: string; datos?: string }[];
+    resultados: Record<string, unknown>;
   };
 
   beforeAll(async () => {
@@ -158,7 +188,12 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
           return {
             jsonrpc: '2.0',
             id: p.id,
-            result: p.method === 'eth_chainId' ? nodo.cadena : nodo.llamada,
+            result:
+              p.method in nodo.resultados
+                ? nodo.resultados[p.method]
+                : p.method === 'eth_chainId'
+                  ? nodo.cadena
+                  : nodo.llamada,
           };
         };
         respuesta.statusCode = nodo.estado;
@@ -186,7 +221,66 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
       estado: 200,
       colgado: false,
       llamadas: [],
+      resultados: {},
     };
+  });
+
+  describe('acunarRecarga', () => {
+    const SI = `0x${'1'.padStart(64, '0')}`;
+    const relayer = () => new CadenaReal(url, TOKEN, 31337, undefined, LLAVE);
+
+    it('orden ya acuñada: recupera el hash del evento y no envía otra transacción', async () => {
+      nodo.llamada = SI;
+      nodo.resultados.eth_getLogs = [
+        {
+          address: TOKEN,
+          topics: [
+            id('RecargaAcunada(bytes32,address,uint256)'),
+            ID_ORDEN,
+            zeroPadValue(DIRECCION, 32),
+          ],
+          data: `0x${URC.toString(16).padStart(64, '0')}`,
+          blockNumber: '0x1',
+          blockHash: `0x${'cd'.repeat(32)}`,
+          transactionHash: HASH,
+          transactionIndex: '0x0',
+          logIndex: '0x0',
+          removed: false,
+        },
+      ];
+      await expect(
+        relayer().acunarRecarga(DIRECCION, URC, ID_ORDEN),
+      ).resolves.toBe(HASH);
+      const metodos = nodo.llamadas.map((l) => l.metodo);
+      expect(metodos).not.toContain('eth_sendRawTransaction');
+      expect(metodos).not.toContain('eth_estimateGas');
+    });
+
+    it('orden acuñada sin su evento en el nodo: rechaza, para reintentar', async () => {
+      nodo.llamada = SI;
+      nodo.resultados.eth_getLogs = [];
+      await expect(
+        relayer().acunarRecarga(DIRECCION, URC, ID_ORDEN),
+      ).rejects.toThrow('sin su evento');
+    });
+
+    it('sin llave del relayer o sin token rechaza sin llamar al nodo', async () => {
+      await expect(
+        new CadenaReal(url, TOKEN, 31337).acunarRecarga(
+          DIRECCION,
+          URC,
+          ID_ORDEN,
+        ),
+      ).rejects.toThrow('RELAYER_LLAVE_PRIVADA');
+      await expect(
+        new CadenaReal(url, '', 31337, undefined, LLAVE).acunarRecarga(
+          DIRECCION,
+          URC,
+          ID_ORDEN,
+        ),
+      ).rejects.toThrow('DIRECCION_TOKEN_URC');
+      expect(nodo.llamadas).toEqual([]);
+    });
   });
 
   it('lee balanceOf del contrato configurado', async () => {
