@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -30,10 +31,12 @@ import { IdentidadVerificadaGuard } from '../comun/identidad.guard.js';
 import { OrganizacionGuard } from '../comun/organizacion.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import {
+  BuscarViajesDto,
   DetalleViajeDto,
   LimitesViajeDto,
   MiViajeDto,
   PublicarViajeDto,
+  ViajeEncontradoDto,
   ViajePublicadoDto,
 } from './dto/viaje.dto.js';
 import { ViajesService } from './viajes.service.js';
@@ -118,6 +121,30 @@ export class ViajesController {
     @OrganizacionActual() organizacionId: string,
   ): Promise<LimitesViajeDto> {
     return this.servicio.limites(organizacionId);
+  }
+
+  /** Solo membresía aprobada, sin firma: buscar no pide huella (decisión del integrante, 07/11). Va antes de `:id`. */
+  @Get('buscar')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({
+    type: ViajeEncontradoDto,
+    isArray: true,
+    description:
+      'Viajes de la organización activa con salida a 1 km y ± 30 minutos, con cupos y aún sin salir, por hora de salida. Máximo 50. Lista vacía si no hay.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description: '`COORDENADAS_INVALIDAS` o `VALIDACION_FALLIDA` (hora).',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  buscar(
+    @OrganizacionActual() organizacionId: string,
+    @Query() consulta: BuscarViajesDto,
+  ): Promise<ViajeEncontradoDto[]> {
+    return this.servicio.buscar(organizacionId, consulta);
   }
 
   @Get(':id')

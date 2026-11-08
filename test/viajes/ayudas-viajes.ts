@@ -99,6 +99,13 @@ export function ayudasViajes(e: () => Entorno) {
   const detalle = (token: string, id: string) =>
     e().api().get(`${RUTA_VIAJES}/${id}`).set(b.conToken(token));
 
+  const buscar = (token: string, consulta: object) =>
+    e()
+      .api()
+      .get(`${RUTA_VIAJES}/buscar`)
+      .set(b.conToken(token))
+      .query(consulta);
+
   const filas = async (conductorId: string) =>
     (
       await e().bd.query(`SELECT * FROM viajes WHERE conductor_id = $1`, [
@@ -130,6 +137,7 @@ export function ayudasViajes(e: () => Entorno) {
     publicar,
     misViajes,
     detalle,
+    buscar,
     filas,
     cambiarOrganizacion,
     conToken: b.conToken,

@@ -223,7 +223,7 @@ model Viaje {
   conductor    Usuario      @relation(fields: [conductorId], references: [id])
   vehiculo     Vehiculo     @relation(fields: [vehiculoId], references: [id])
 
-  @@index([organizacionId, estado, fechaHoraSalida])
+  @@index([organizacionId, estado, fechaHoraSalida, cuposDisponibles], map: "idx_viajes_busqueda")
   @@index([conductorId, fechaHoraSalida])
   @@map("viajes")
 }

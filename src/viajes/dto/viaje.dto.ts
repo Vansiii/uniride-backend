@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
+  Allow,
   IsInt,
   IsISO8601,
   IsNotEmpty,
@@ -82,6 +84,36 @@ export class PublicarViajeDto {
   precioPorAsiento!: number;
 }
 
+/** En la URL todo es texto, y `Number('')` daría 0: un punto válido. */
+const aNumero = () =>
+  Transform(({ value }) =>
+    typeof value === 'string' && value.trim() ? Number(value) : Number.NaN,
+  );
+
+export class BuscarViajesDto {
+  // `@Allow`: el servicio valida las coordenadas para responder con su propio `codigo`.
+  @ApiProperty({ type: Number, example: -17.783, minimum: -90, maximum: 90 })
+  @Allow()
+  @aNumero()
+  origenLat!: number;
+
+  @ApiProperty({ type: Number, example: -63.182, minimum: -180, maximum: 180 })
+  @Allow()
+  @aNumero()
+  origenLng!: number;
+
+  @ApiProperty({
+    example: '2026-11-03T07:30:00Z',
+    description: 'ISO 8601 con zona horaria. Busca salidas a ± 30 minutos.',
+  })
+  // Más estricto que `fechaHoraSalida`: ISO 8601 admite formas (`T07Z`, semanas) que `Date` no entiende.
+  @IsISO8601({ strict: true })
+  @Matches(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/,
+  )
+  horaSalida!: string;
+}
+
 export class LimitesViajeDto {
   @ApiProperty({
     example: 1,
@@ -131,8 +163,27 @@ class LugarDto {
 }
 
 class ConductorPublicoDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'Nombre de pila (RN-4 de HU-18).' })
   nombre!: string;
+}
+
+class ConductorEncontradoDto extends ConductorPublicoDto {
+  @ApiProperty()
+  verificado!: boolean;
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: '`null` mientras no haya reseñas (D-17).',
+  })
+  calificacionPromedio!: number | null;
+  @ApiProperty({ description: 'Sin reseñas todavía (D-17).' })
+  esNuevo!: boolean;
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description: 'Antigüedad en la plataforma (RN-5).',
+  })
+  miembroDesde!: Date;
 }
 
 class VehiculoPublicoDto {
@@ -144,6 +195,27 @@ class VehiculoPublicoDto {
   modelo!: string;
   @ApiProperty()
   color!: string;
+}
+
+export class ViajeEncontradoDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+  @ApiProperty()
+  origenNombre!: string;
+  @ApiProperty({ description: 'Del punto buscado a la salida, en km.' })
+  distanciaKm!: number;
+  @ApiProperty()
+  destinoNombre!: string;
+  @ApiProperty({ type: String, format: 'date-time' })
+  fechaHoraSalida!: Date;
+  @ApiProperty({ type: 'integer' })
+  cuposDisponibles!: number;
+  @ApiProperty()
+  precioPorAsiento!: number;
+  @ApiProperty({ type: ConductorEncontradoDto })
+  conductor!: ConductorEncontradoDto;
+  @ApiProperty({ type: VehiculoPublicoDto })
+  vehiculo!: VehiculoPublicoDto;
 }
 
 export class DetalleViajeDto {
@@ -159,6 +231,8 @@ export class DetalleViajeDto {
   conductor!: ConductorPublicoDto;
   @ApiProperty({ type: VehiculoPublicoDto })
   vehiculo!: VehiculoPublicoDto;
+  @ApiProperty({ type: 'integer', description: 'Para mostrar «2 de 3».' })
+  cuposTotales!: number;
   @ApiProperty({ type: 'integer' })
   cuposDisponibles!: number;
   @ApiProperty()

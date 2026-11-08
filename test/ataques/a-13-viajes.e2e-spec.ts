@@ -36,6 +36,84 @@ describe('A-13 · aislamiento de viajes (e2e)', () => {
       expect(r.body.codigo).toBe('VIAJE_NO_ENCONTRADO');
     });
 
+    describe('búsqueda (HU-18, CA-3)', () => {
+      const salida = cuerpoViaje();
+      const consulta = (extra: object = {}) => ({
+        origenLat: salida.origenLat,
+        origenLng: salida.origenLng,
+        horaSalida: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        ...extra,
+      });
+      const ids = (r: { body: { id: string }[] }) => r.body.map((x) => x.id);
+
+      it('un miembro de otra organización no lo encuentra, con el mismo punto y hora', async () => {
+        const ajeno = await v.conductor(b);
+        expect(
+          ids(await v.buscar(ajeno.token, consulta()).expect(200)),
+        ).toEqual([]);
+      });
+
+      it('uno de la misma organización sí', async () => {
+        const vecino = await v.conductor(a);
+        const r = await v.buscar(vecino.token, consulta()).expect(200);
+        expect(ids(r)).toContain(viajeA);
+      });
+
+      it('quien está en las dos organizaciones solo ve la activa', async () => {
+        const c = await v.conductor(a);
+        expect(ids(await v.buscar(c.token, consulta()))).toContain(viajeA);
+        const enB = await v.cambiarOrganizacion(c, b);
+        expect(ids(await v.buscar(enB.token, consulta()))).not.toContain(
+          viajeA,
+        );
+      });
+
+      it.each(['organizacionId', 'conductorId'])(
+        '`%s` en la consulta se rechaza: lo decide el token',
+        async (campo) => {
+          const ajeno = await v.conductor(b);
+          await v.buscar(ajeno.token, consulta({ [campo]: a })).expect(400);
+        },
+      );
+
+      it('sin membresía aprobada: 403', async () => {
+        const pendiente = await v.conductor(a, { membresia: 'pendiente' });
+        const r = await v.buscar(pendiente.token, consulta()).expect(403);
+        expect(r.body.codigo).toBe('NO_AUTORIZADO');
+      });
+
+      it('revocar la membresía surte efecto con la misma sesión', async () => {
+        const c = await v.conductor(a);
+        await v.buscar(c.token, consulta()).expect(200);
+        await e.bd.query(
+          `UPDATE membresias SET estado = 'rechazada' WHERE usuario_id = $1`,
+          [c.id],
+        );
+        await v.buscar(c.token, consulta()).expect(403);
+      });
+
+      it('sin sesión: 401', async () => {
+        await e
+          .api()
+          .get('/api/v1/viajes/buscar')
+          .query(consulta())
+          .expect(401);
+      });
+
+      it('en PostgreSQL, RLS sola oculta la fila aunque la consulta no filtre por organización', async () => {
+        const contar = (org: string) =>
+          prisma.enOrganizacion(
+            org,
+            (tx) =>
+              tx.$queryRaw<
+                { id: string }[]
+              >`SELECT id FROM viajes WHERE id = ${viajeA}::uuid`,
+          );
+        expect(await contar(b)).toEqual([]);
+        expect(await contar(a)).toHaveLength(1);
+      });
+    });
+
     it('un miembro de la misma organización sí lo ve', async () => {
       const vecino = await v.conductor(a);
       await v.detalle(vecino.token, viajeA).expect(200);

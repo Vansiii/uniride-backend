@@ -5,6 +5,7 @@
   "comun.errores.no_autorizado": "No tienes permiso para realizar esta acción.",
   "comun.errores.no_encontrado": "No se encontró lo que buscas.",
   "comun.errores.firma_invalida": "No pudimos comprobar que la petición viene de tu teléfono vinculado.",
+  "comun.errores.coordenadas_invalidas": "Las coordenadas no son válidas.",
   "comun.errores.peticion_expirada": "La petición expiró o ya fue usada. Inténtalo de nuevo.",
   "autenticacion.sesion.credenciales_invalidas": "Correo o contraseña incorrectos.",
   "autenticacion.sesion.bloqueada": "Demasiados intentos. Vuelve a intentarlo más tarde.",
