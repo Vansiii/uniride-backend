@@ -34,6 +34,10 @@ export async function prepararEntorno(
   process.env.CORREO_MODO = 'consola';
   process.env.OTP_SECRETO ||= 'secreto-otp-de-pruebas';
   process.env.IDENTIDAD_SECRETO ||= 'secreto-identidad-de-pruebas';
+  // HU-12: ninguna prueba toca un nodo real. La clave es de relleno, sin valor fuera de estas pruebas.
+  process.env.BLOCKCHAIN_SIMULADA = 'true';
+  process.env.CADENA_ID ||= '31337';
+  process.env.WALLET_ENCRYPTION_KEY ||= 'ab'.repeat(32);
   const bd = new pg.Client({
     connectionString: process.env.DATABASE_URL_MIGRACIONES,
   });
@@ -84,6 +88,7 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
     );
+    await bd.query(`DELETE FROM billeteras WHERE usuario_id IN (${usuarios})`);
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
   await limpiar();

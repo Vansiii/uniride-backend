@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
 import { AutenticacionModule } from './autenticacion/autenticacion.module.js';
+import { BilleteraModule } from './billetera/billetera.module.js';
 import { IdentidadModule } from './identidad/identidad.module.js';
 import { DispositivosModule } from './dispositivos/dispositivos.module.js';
 import { MembresiasModule } from './membresias/membresias.module.js';
@@ -19,6 +20,7 @@ import { VehiculosModule } from './vehiculos/vehiculos.module.js';
     VehiculosModule,
     IdentidadModule,
     DispositivosModule,
+    BilleteraModule,
   ],
   controllers: [SaludController],
 })
