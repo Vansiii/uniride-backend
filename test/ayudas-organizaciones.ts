@@ -88,6 +88,9 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
     );
+    await bd.query(
+      `DELETE FROM movimientos_billetera WHERE billetera_id IN (SELECT id FROM billeteras WHERE usuario_id IN (${usuarios}))`,
+    );
     await bd.query(`DELETE FROM billeteras WHERE usuario_id IN (${usuarios})`);
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };

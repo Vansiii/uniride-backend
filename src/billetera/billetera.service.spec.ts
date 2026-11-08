@@ -39,6 +39,7 @@ function crear(o: { existente?: typeof FILA; suspendidaEn?: Date } = {}) {
   const cadena: Cadena = {
     leerSaldo: vi.fn().mockResolvedValue(10n ** 18n),
     exploradorUrl: vi.fn().mockReturnValue(null),
+    exploradorTxUrl: vi.fn().mockReturnValue(null),
   };
   const servicio = new BilleteraService(
     prisma as unknown as PrismaService,
