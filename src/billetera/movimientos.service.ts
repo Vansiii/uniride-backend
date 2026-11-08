@@ -3,6 +3,7 @@ import {
   BlockchainService,
   urcAUnidades,
 } from '../blockchain/blockchain.service.js';
+import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService, type Transaccion } from '../comun/prisma.service.js';
 import { BilleteraService } from './billetera.service.js';
 import type {
@@ -31,7 +32,10 @@ export interface ResumenLibro {
   confirmados: number;
 }
 
-/** Libro mayor de la billetera (RN-1). HU-13 será el primero en registrar movimientos fuera de las pruebas. */
+/** Hasta 2 decimales: la columna redondearía en silencio. */
+const MONTO_VALIDO = /^\d+(\.\d{1,2})?$/;
+
+/** Libro mayor de la billetera (RN-1). */
 @Injectable()
 export class MovimientosService {
   constructor(
@@ -41,13 +45,20 @@ export class MovimientosService {
   ) {}
 
   /**
-   * Nace `pendiente` (`ssd.md` §10). Con una clave repetida no inserta y devuelve el movimiento original (A-09);
-   * `ON CONFLICT DO NOTHING` no aborta la transacción `tx` de quien llama, a diferencia de capturar el P2002.
+   * Nace `pendiente` (`ssd.md` §10). Con una clave repetida no inserta y devuelve el movimiento original si es la
+   * misma operación; con otra billetera, tipo, monto o reserva falla (A-09). `ON CONFLICT DO NOTHING` no aborta la
+   * transacción `tx` de quien llama, a diferencia de capturar el P2002.
    */
   async registrar(
     nuevo: NuevoMovimiento,
     tx: Transaccion | PrismaService = this.prisma,
   ) {
+    if (!MONTO_VALIDO.test(nuevo.monto))
+      throw new ErrorNegocio(
+        400,
+        'MONTO_INVALIDO',
+        'billetera.recarga.monto_invalido',
+      );
     const { count } = await tx.movimientoBilletera.createMany({
       data: [nuevo],
       skipDuplicates: true,
@@ -55,10 +66,22 @@ export class MovimientosService {
     const movimiento = await tx.movimientoBilletera.findUniqueOrThrow({
       where: { claveIdempotencia: nuevo.claveIdempotencia },
     });
+    if (
+      count === 0 &&
+      (movimiento.billeteraId !== nuevo.billeteraId ||
+        movimiento.tipo !== nuevo.tipo ||
+        !movimiento.monto.equals(nuevo.monto) ||
+        movimiento.reservaId !== (nuevo.reservaId ?? null))
+    )
+      throw new ErrorNegocio(
+        409,
+        'CLAVE_IDEMPOTENCIA_EN_CONFLICTO',
+        'billetera.movimiento.clave_en_conflicto',
+      );
     return { movimiento, creado: count === 1 };
   }
 
-  /** Lo único que cambia de un movimiento ya escrito; la BD exige `hashTx` para confirmarlo (RN-3) y rechaza cambiar uno confirmado. */
+  /** Lo único que cambia de un movimiento ya escrito; la BD exige `hashTx` para confirmarlo (RN-3) y rechaza cambiar uno confirmado o fallido. */
   actualizarEstado(
     id: string,
     estado: EstadoMovimiento,

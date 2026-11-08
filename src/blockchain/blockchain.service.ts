@@ -3,10 +3,12 @@ import {
   Contract,
   FetchRequest,
   formatUnits,
+  id,
   isAddress,
   JsonRpcProvider,
   Network,
   parseUnits,
+  Wallet,
 } from 'ethers';
 
 /** Hardhat local y Polygon Amoy. Cualquier otra red, en especial una mainnet, no arranca (AGENTS.md §11). */
@@ -16,13 +18,31 @@ const EXPLORADOR_AMOY = 'https://amoy.polygonscan.com/address/';
 const EXPLORADOR_TX_AMOY = 'https://amoy.polygonscan.com/tx/';
 const TIEMPO_MAXIMO_MS = 5_000;
 const VIDA_CACHE_MS = 15_000;
-const ABI_SALDO = ['function balanceOf(address) view returns (uint256)'];
+/** Sin recibo a tiempo el worker reintenta: el contrato no acuña dos veces la misma orden. */
+const TIEMPO_RECIBO_MS = 120_000;
+const BLOQUES_POR_VENTANA = 1_000;
+const MAX_VENTANAS_LOGS = 500;
+const ABI_UNICOIN = [
+  'function balanceOf(address) view returns (uint256)',
+  'function ordenAcunada(bytes32) view returns (bool)',
+  'function acunarRecarga(address destino, uint256 monto, bytes32 idOrden)',
+  'event RecargaAcunada(bytes32 indexed idOrden, address indexed destino, uint256 monto)',
+];
 const DECIMALES_URC = 18;
 const UNIDADES_POR_CENTAVO = 10n ** 16n;
 
 export interface Cadena {
   /** Saldo en las unidades mínimas del token. Rechaza si el nodo falla o no es la red configurada. */
   leerSaldo(direccion: string): Promise<bigint>;
+  /**
+   * Acuña una recarga y devuelve el hash de su transacción. Repetir la misma orden no acuña de nuevo y devuelve
+   * el hash original. Rechaza si el nodo falla: el worker reintenta.
+   */
+  acunarRecarga(
+    destino: string,
+    monto: bigint,
+    idOrden: string,
+  ): Promise<string>;
   exploradorUrl(direccion: string): string | null;
   exploradorTxUrl(hashTx: string): string | null;
 }
@@ -45,20 +65,29 @@ export function unidadesAUrc(unidades: bigint): string {
 export class CadenaReal implements Cadena {
   private readonly proveedor: JsonRpcProvider;
   private readonly token: Contract | null;
+  private readonly relayer: Wallet | null;
 
   constructor(
     url: string,
     direccionToken: string,
     private readonly cadenaId: number,
     tiempoMaximoMs = TIEMPO_MAXIMO_MS,
+    llaveRelayer?: string,
   ) {
     const peticion = new FetchRequest(url);
     peticion.timeout = tiempoMaximoMs;
     // Con red fija ethers no reintenta detectarla sin fin cuando el nodo está caído.
     const red = Network.from(cadenaId);
-    this.proveedor = new JsonRpcProvider(peticion, red, { staticNetwork: red });
+    // Sin caché: con los 250 ms de ethers, dos acuñaciones seguidas leerían el mismo nonce.
+    this.proveedor = new JsonRpcProvider(peticion, red, {
+      staticNetwork: red,
+      cacheTimeout: -1,
+    });
     this.token = direccionToken
-      ? new Contract(direccionToken, ABI_SALDO, this.proveedor)
+      ? new Contract(direccionToken, ABI_UNICOIN, this.proveedor)
+      : null;
+    this.relayer = llaveRelayer
+      ? new Wallet(llaveRelayer, this.proveedor)
       : null;
   }
 
@@ -74,6 +103,46 @@ export class CadenaReal implements Cadena {
     return saldo;
   }
 
+  async acunarRecarga(
+    destino: string,
+    monto: bigint,
+    idOrden: string,
+  ): Promise<string> {
+    if (!this.token) throw new Error('DIRECCION_TOKEN_URC no está configurada');
+    if (!this.relayer)
+      throw new Error('RELAYER_LLAVE_PRIVADA no está configurada');
+    // Ya acuñada: un intento anterior perdió la respuesta. Si dos intentos se cruzan, el contrato revierte
+    // con `OrdenYaAcunada` y el siguiente reintento pasa por aquí.
+    if (await this.token.ordenAcunada(idOrden))
+      return this.hashDeAcunacion(this.token, idOrden);
+    const token = this.token.connect(this.relayer) as Contract;
+    // ponytail: una confirmación y sin reemplazar una transacción atascada; sirve con el relayer de desarrollo. SP129 agrega
+    // N confirmaciones y reemplazo con más gas antes de usar el firmante real.
+    const tx = await token.acunarRecarga(destino, monto, idOrden);
+    await tx.wait(1, TIEMPO_RECIBO_MS);
+    return tx.hash as string;
+  }
+
+  /**
+   * Busca el evento de atrás hacia adelante por ventanas: los RPC públicos rechazan un rango grande de bloques.
+   * ponytail: tras `MAX_VENTANAS_LOGS` (unos 11 días en Amoy) rechaza y el worker sigue con su alerta; si una orden
+   * llega a tardar más, guardar el bloque al enviar.
+   */
+  private async hashDeAcunacion(
+    token: Contract,
+    idOrden: string,
+  ): Promise<string> {
+    const filtro = token.filters.RecargaAcunada(idOrden);
+    let hasta = await this.proveedor.getBlockNumber();
+    for (let i = 0; i < MAX_VENTANAS_LOGS && hasta >= 0; i++) {
+      const desde = Math.max(0, hasta - BLOQUES_POR_VENTANA + 1);
+      const [evento] = await token.queryFilter(filtro, desde, hasta);
+      if (evento) return evento.transactionHash;
+      hasta = desde - 1;
+    }
+    throw new Error('Orden acuñada sin su evento en el nodo');
+  }
+
   exploradorUrl(direccion: string): string | null {
     return this.cadenaId === ID_AMOY ? `${EXPLORADOR_AMOY}${direccion}` : null;
   }
@@ -83,16 +152,32 @@ export class CadenaReal implements Cadena {
   }
 }
 
-/** Solo pruebas y desarrollo: toda dirección tiene saldo 0 y no hay nodo. */
+/** Solo pruebas y desarrollo: sin nodo, con los saldos en memoria; cada dirección empieza en 0 y un reinicio los borra. */
 export class CadenaSimulada implements Cadena {
+  protected saldos = new Map<string, bigint>();
+  private readonly acunadas = new Map<string, string>();
+
   constructor() {
     new Logger(CadenaSimulada.name).warn(
       'BLOCKCHAIN_SIMULADA activo: la cadena es SIMULADA. Nunca en producción.',
     );
   }
 
-  async leerSaldo(): Promise<bigint> {
-    return 0n;
+  async leerSaldo(direccion = ''): Promise<bigint> {
+    return this.saldos.get(direccion) ?? 0n;
+  }
+
+  async acunarRecarga(
+    destino: string,
+    monto: bigint,
+    idOrden: string,
+  ): Promise<string> {
+    const previa = this.acunadas.get(idOrden);
+    if (previa) return previa;
+    const hash = id(`recarga-simulada:${idOrden}`);
+    this.acunadas.set(idOrden, hash);
+    this.saldos.set(destino, (this.saldos.get(destino) ?? 0n) + monto);
+    return hash;
   }
 
   exploradorUrl(): string | null {
@@ -124,7 +209,18 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
   const token = env.DIRECCION_TOKEN_URC ?? '';
   if (token ? !isAddress(token) : produccion)
     throw new Error('DIRECCION_TOKEN_URC no es una dirección válida');
-  return new CadenaReal(env.CADENA_RPC_URL, token, cadenaId);
+  // A-12: en producción la llave del relayer solo vive en KMS. Sin ese firmante (SP129) no se arranca.
+  if (produccion)
+    throw new Error(
+      'Producción exige el firmante KMS del relayer (SP129); RELAYER_LLAVE_PRIVADA no se acepta',
+    );
+  return new CadenaReal(
+    env.CADENA_RPC_URL,
+    token,
+    cadenaId,
+    undefined,
+    env.RELAYER_LLAVE_PRIVADA,
+  );
 }
 
 function conTiempoMaximo<T>(promesa: Promise<T>): Promise<T> {
