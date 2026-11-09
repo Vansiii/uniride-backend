@@ -81,6 +81,8 @@
   "notificaciones.membresia_rechazada.asunto": "Tu solicitud para {organizacion} en UniRide no fue aprobada",
   "notificaciones.membresia_rechazada.cuerpo": "Hola {nombre},\n\nEl administrador de {organizacion} rechazó tu solicitud de ingreso a UniRide.\n{motivo}\nSi crees que es un error, comunícate con el administrador de tu organización.",
   "notificaciones.membresia_rechazada.motivo": "Motivo: {motivo}\n",
+  "notificaciones.dispositivo_revinculado.asunto": "Se vinculó un nuevo teléfono a tu cuenta de UniRide",
+  "notificaciones.dispositivo_revinculado.cuerpo": "Hola {nombre},\n\nSe vinculó un nuevo teléfono ({modelo}) a tu cuenta de UniRide el {fecha}. Tu teléfono anterior fue desactivado por seguridad.\n\nSi no fuiste tú, cambia tu contraseña de inmediato desde la app o comunícate con soporte.",
   "dispositivo.vinculacion.no_integro": "Tu teléfono no cumple los requisitos de seguridad: debe ser un dispositivo físico, sin root y con la app original.",
   "dispositivo.vinculacion.ya_vinculado": "Tu cuenta ya tiene un teléfono vinculado.",
   "dispositivo.vinculacion.desafio_invalido": "El desafío venció o ya fue usado. Inicia la vinculación de nuevo.",

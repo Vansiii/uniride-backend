@@ -5,6 +5,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 /** Configuración compartida por main.ts y las pruebas e2e. */
 export function configurarAplicacion(app: INestApplication): void {
+  if (process.env.NODE_ENV !== 'production') {
+    app.enableCors({
+      origin: true,
+      credentials: true,
+    });
+  }
   app.setGlobalPrefix('api/v1');
   app.use(cookieParser());
   app.useGlobalPipes(

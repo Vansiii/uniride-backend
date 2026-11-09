@@ -19,6 +19,13 @@ export class AlmacenFalso implements Almacen {
   async borrar(clave: string) {
     this.archivos.delete(clave);
   }
+
+  async descargar(clave: string): Promise<Buffer> {
+    const archivo = this.archivos.get(clave);
+    if (!archivo)
+      throw new Error(`Archivo no encontrado en S3 falso: ${clave}`);
+    return archivo.contenido;
+  }
 }
 
 /** El motor simulado (ver sus convenciones) con contadores de llamadas y una falla activable. */

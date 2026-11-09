@@ -253,7 +253,7 @@ describe('DispositivosService.miDispositivo', () => {
   it('devuelve solo id, modelo, fecha y estado (nunca la llave)', async () => {
     const o = crear();
     const fecha = new Date();
-    o.prisma.dispositivo.findUnique.mockResolvedValue({
+    o.prisma.dispositivo.findFirst.mockResolvedValue({
       id: 'd1',
       modeloDispositivo: 'Pixel',
       vinculadoEn: fecha,
@@ -265,7 +265,7 @@ describe('DispositivosService.miDispositivo', () => {
       vinculadoEn: fecha,
       activo: true,
     });
-    const { select } = o.prisma.dispositivo.findUnique.mock.calls[0][0];
+    const { select } = o.prisma.dispositivo.findFirst.mock.calls[0][0];
     expect(select).not.toHaveProperty('llavePublica');
   });
 

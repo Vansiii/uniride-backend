@@ -176,8 +176,8 @@ export class DispositivosService {
   }
 
   async miDispositivo(usuarioId: string): Promise<MiDispositivoDto> {
-    const d = await this.prisma.dispositivo.findUnique({
-      where: { usuarioId },
+    const d = await this.prisma.dispositivo.findFirst({
+      where: { usuarioId, activo: true },
       select: {
         id: true,
         modeloDispositivo: true,

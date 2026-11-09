@@ -125,6 +125,98 @@ export class IdentidadService implements OnModuleInit {
     return { sesionId: await this.motor((m) => m.crearSesionLiveness()) };
   }
 
+  /** HU-10: comprueba si la cuenta tiene identidad aprobada. */
+  async tieneIdentidadAprobada(usuarioId: string): Promise<boolean> {
+    const fila = await this.prisma.identidad.findUnique({
+      where: { usuarioId },
+      select: { estado: true },
+    });
+    return fila?.estado === 'verificada';
+  }
+
+  /** HU-10: sesion de liveness para revincular un dispositivo (con identidad aprobada). */
+  async crearSesionLivenessRevinculacion(usuarioId: string): Promise<string> {
+    const fila = await this.leer(usuarioId);
+    if (bloqueoVigente(fila, new Date())) {
+      throw intentosAgotados(fila!.bloqueadoHasta!);
+    }
+    return await this.motor((m) => m.crearSesionLiveness());
+  }
+
+  /**
+   * HU-10 (SP135): comprueba que el rostro de la prueba de vida coincida con el carnet de la identidad aprobada.
+   * Suma fallos y bloquea 24 h al tercer fallo consecutivo (CA-7).
+   */
+  async comprobarRostroDelTitular(
+    usuarioId: string,
+    sesionLivenessId?: string,
+  ): Promise<void> {
+    const fila = await this.prisma.identidad.findUnique({
+      where: { usuarioId },
+      select: {
+        id: true,
+        estado: true,
+        claveS3Carnet: true,
+        intentosFallidos: true,
+        bloqueadoHasta: true,
+      },
+    });
+    if (!fila || fila.estado !== 'verificada') return;
+
+    const ahora = new Date();
+    if (bloqueoVigente(fila, ahora)) {
+      throw intentosAgotados(fila.bloqueadoHasta!);
+    }
+    if (fila.bloqueadoHasta) {
+      await this.prisma.identidad.updateMany({
+        where: { usuarioId },
+        data: { intentosFallidos: 0, bloqueadoHasta: null },
+      });
+    }
+
+    if (!sesionLivenessId) {
+      throw await this.rechazarFalloRostro(usuarioId, 'prueba_vida_fallida');
+    }
+    if (!fila.claveS3Carnet) {
+      this.registro.error(
+        `Identidad verificada de ${usuarioId} no tiene claveS3Carnet`,
+      );
+      throw noDisponible();
+    }
+
+    let carnet: Buffer;
+    try {
+      carnet = await this.almacenamiento.descargar(fila.claveS3Carnet);
+    } catch {
+      throw noDisponible();
+    }
+
+    const vivacidad = await this.motor((m) =>
+      m.obtenerResultadoLiveness(sesionLivenessId),
+    );
+    if (
+      !vivacidad.exitosa ||
+      vivacidad.confianza < CONFIANZA_MINIMA_LIVENESS ||
+      !vivacidad.imagenReferencia
+    ) {
+      throw await this.rechazarFalloRostro(usuarioId, 'prueba_vida_fallida');
+    }
+
+    const similitud = await this.motor((m) =>
+      m.compararRostros(vivacidad.imagenReferencia!, carnet),
+    );
+    if (similitud === null || similitud < SIMILITUD_MINIMA) {
+      throw await this.rechazarFalloRostro(usuarioId, 'rostro_no_coincide');
+    }
+
+    if (fila.intentosFallidos > 0) {
+      await this.prisma.identidad.updateMany({
+        where: { usuarioId },
+        data: { intentosFallidos: 0, bloqueadoHasta: null },
+      });
+    }
+  }
+
   /**
    * Orden barato → caro: consentimiento (RN-3) → estado y bloqueo → imagen y documento duplicado (A-02, sin gastar
    * llamadas biométricas) → vivacidad (A-01) → comparación con el carnet → rostro duplicado (A-02) → S3 → indexado → BD.
@@ -388,6 +480,51 @@ export class IdentidadService implements OnModuleInit {
         {
           accion: 'identidad.verificacion',
           entidad: 'identidad',
+          resultado: 'fallo',
+          actorId: usuarioId,
+          detalle: {
+            motivo,
+            intentos: fila.intentosFallidos,
+            bloqueada: hasta !== null,
+          },
+        },
+        tx,
+      );
+      return hasta;
+    });
+    return bloqueadoHasta
+      ? intentosAgotados(bloqueadoHasta)
+      : RECHAZOS[motivo]();
+  }
+
+  /** HU-10: cuenta fallos biométricos durante la revinculación de un titular ya verificado. */
+  private async rechazarFalloRostro(
+    usuarioId: string,
+    motivo: 'prueba_vida_fallida' | 'rostro_no_coincide',
+  ): Promise<ErrorNegocio> {
+    const bloqueadoHasta = await this.prisma.$transaction(async (tx) => {
+      const ahora = new Date();
+      await tx.identidad.updateMany({
+        where: { usuarioId },
+        data: { intentosFallidos: { increment: 1 } },
+      });
+      const fila = await tx.identidad.findUniqueOrThrow({
+        where: { usuarioId },
+        select: { intentosFallidos: true, id: true },
+      });
+      let hasta: Date | null = null;
+      if (fila.intentosFallidos >= MAXIMO_INTENTOS) {
+        hasta = new Date(ahora.getTime() + BLOQUEO_MS);
+        await tx.identidad.updateMany({
+          where: { usuarioId },
+          data: { bloqueadoHasta: hasta },
+        });
+      }
+      await this.auditoria.registrar(
+        {
+          accion: 'dispositivo.revinculacion',
+          entidad: 'identidad',
+          entidadId: fila.id,
           resultado: 'fallo',
           actorId: usuarioId,
           detalle: {
