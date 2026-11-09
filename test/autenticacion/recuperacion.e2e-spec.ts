@@ -243,46 +243,42 @@ describe('HU-34 · Recuperación de contraseña (e2e)', () => {
     await iniciar(correo, NUEVA).expect(200);
   });
 
-  it(
-    'CA-4: 5 códigos erróneos seguidos bloquean 15 minutos, con cuenta o sin ella',
-    async () => {
-      const existente = 'rec.eva@hu01.test';
-      const nadie = 'rec.nadie2@hu01.test';
-      await e.crearUsuario(existente);
-      for (const correo of [existente, nadie]) {
-        await solicitar(correo).expect(202);
-        const codigo = (await codigoDe(correo)) ?? '123456';
-        for (let i = 1; i <= 4; i++)
-          expect(
-            (await restablecer(correo, otroCodigo(codigo)).expect(400)).body
-              .codigo,
-          ).toBe('OTP_INVALIDO');
-        const quinto = await restablecer(correo, otroCodigo(codigo)).expect(429);
-        expect(quinto.body.codigo).toBe('OTP_BLOQUEADO');
-        const hasta = new Date(quinto.body.reintentarEn).getTime();
-        expect(hasta).toBeGreaterThan(Date.now() + 14.9 * 60_000);
-        expect(hasta).toBeLessThan(Date.now() + 15.1 * 60_000);
-        // Ni el código correcto, ni pedir otro, levantan el bloqueo.
-        expect((await restablecer(correo, codigo).expect(429)).body.codigo).toBe(
-          'OTP_BLOQUEADO',
-        );
-        await pasarMinuto(correo);
-        expect((await solicitar(correo).expect(429)).body.codigo).toBe(
-          'OTP_BLOQUEADO',
-        );
-        expect((await reenviar(correo).expect(429)).body.codigo).toBe(
-          'OTP_BLOQUEADO',
-        );
-        const { rows } = await e.bd.query(
-          `SELECT 1 FROM registros_auditoria WHERE accion = 'otp.bloqueo' AND entidad_id = $1`,
-          [(await filas(correo))[0].id],
-        );
-        expect(rows).toHaveLength(1);
-      }
-      await iniciar(existente, CONTRASENA).expect(200);
-    },
-    20000,
-  );
+  it('CA-4: 5 códigos erróneos seguidos bloquean 15 minutos, con cuenta o sin ella', async () => {
+    const existente = 'rec.eva@hu01.test';
+    const nadie = 'rec.nadie2@hu01.test';
+    await e.crearUsuario(existente);
+    for (const correo of [existente, nadie]) {
+      await solicitar(correo).expect(202);
+      const codigo = (await codigoDe(correo)) ?? '123456';
+      for (let i = 1; i <= 4; i++)
+        expect(
+          (await restablecer(correo, otroCodigo(codigo)).expect(400)).body
+            .codigo,
+        ).toBe('OTP_INVALIDO');
+      const quinto = await restablecer(correo, otroCodigo(codigo)).expect(429);
+      expect(quinto.body.codigo).toBe('OTP_BLOQUEADO');
+      const hasta = new Date(quinto.body.reintentarEn).getTime();
+      expect(hasta).toBeGreaterThan(Date.now() + 14.9 * 60_000);
+      expect(hasta).toBeLessThan(Date.now() + 15.1 * 60_000);
+      // Ni el código correcto, ni pedir otro, levantan el bloqueo.
+      expect((await restablecer(correo, codigo).expect(429)).body.codigo).toBe(
+        'OTP_BLOQUEADO',
+      );
+      await pasarMinuto(correo);
+      expect((await solicitar(correo).expect(429)).body.codigo).toBe(
+        'OTP_BLOQUEADO',
+      );
+      expect((await reenviar(correo).expect(429)).body.codigo).toBe(
+        'OTP_BLOQUEADO',
+      );
+      const { rows } = await e.bd.query(
+        `SELECT 1 FROM registros_auditoria WHERE accion = 'otp.bloqueo' AND entidad_id = $1`,
+        [(await filas(correo))[0].id],
+      );
+      expect(rows).toHaveLength(1);
+    }
+    await iniciar(existente, CONTRASENA).expect(200);
+  }, 20000);
 
   it('CA-5: un código vencido se rechaza y se puede pedir otro; uno usado, también', async () => {
     const correo = 'rec.fabi@hu01.test';
