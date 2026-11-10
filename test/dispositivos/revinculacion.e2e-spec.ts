@@ -227,12 +227,14 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       const fallos = (await auditoriasDe(p.id)).filter(
         (r) => r.entidad === 'dispositivo' && r.resultado === 'fallo',
       );
-      expect(fallos).toHaveLength(3);
-      for (const f of fallos) {
+      // El 4.º es el desafío pedido durante el bloqueo: todavía no hay modelo.
+      expect(fallos).toHaveLength(4);
+      expect(fallos[0].detalle).toEqual({ motivo: 'INTENTOS_AGOTADOS' });
+      for (const f of fallos.slice(1))
         expect(f.detalle.modelo).toBe('HackerPhone');
-        expect(f.creado_en).toBeInstanceOf(Date);
-      }
+      for (const f of fallos) expect(f.creado_en).toBeInstanceOf(Date);
       expect(fallos.map((f) => f.detalle.motivo)).toEqual([
+        'INTENTOS_AGOTADOS',
         'INTENTOS_AGOTADOS',
         'ROSTRO_NO_COINCIDE',
         'ROSTRO_NO_COINCIDE',
