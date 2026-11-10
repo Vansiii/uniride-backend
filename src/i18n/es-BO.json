@@ -87,6 +87,7 @@
   "dispositivo.vinculacion.ya_vinculado": "Tu cuenta ya tiene un teléfono vinculado.",
   "dispositivo.vinculacion.desafio_invalido": "El desafío venció o ya fue usado. Inicia la vinculación de nuevo.",
   "dispositivo.vinculacion.llave_invalida": "La llave del teléfono no es válida.",
+  "dispositivo.revincular.concurrente": "Otro teléfono se vinculó a tu cuenta al mismo tiempo. Revisa «Mi teléfono» antes de intentarlo de nuevo.",
   "dispositivo.vinculacion.servicio_no_disponible": "No pudimos comprobar tu teléfono en este momento. Inténtalo de nuevo más tarde.",
   "dispositivo.autenticacion.cancelada": "Cancelaste la autenticación biométrica; la acción no se realizó."
 }

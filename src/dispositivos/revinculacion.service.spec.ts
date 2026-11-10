@@ -165,7 +165,7 @@ describe('RevinculacionService · revincular', () => {
         tokenIntegridad: 'simulado',
         llavePublicaPem: pem,
         modelo: 'Pixel 8',
-        sesionLivenessId: 'liveness-1',
+        sesionLivenessId: 'liveness-sesion-1',
       }),
     ).rejects.toMatchObject({
       status: 422,
@@ -257,6 +257,91 @@ describe('RevinculacionService · revincular', () => {
         destinatario: 'usuario@uagrm.edu.bo',
         plantilla: 'dispositivo_revinculado',
         referenciaId: 'nuevo-d1',
+      }),
+    );
+  });
+
+  it('la sesión de prueba de vida vale solo con su desafío: otra o ninguna llega como ausente', async () => {
+    const c = crear({ identidadAprobada: true });
+    for (const sesionLivenessId of [
+      'liveness-de-otro-desafio',
+      'liveness-sesion-1-extra',
+      undefined,
+    ]) {
+      const { desafio } = await c.servicio.emitirDesafio(USUARIO);
+      await c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Pixel 8',
+        sesionLivenessId,
+      });
+    }
+    const { desafio } = await c.servicio.emitirDesafio(USUARIO);
+    await c.servicio.revincular(USUARIO, {
+      desafio,
+      tokenIntegridad: 'simulado',
+      llavePublicaPem: pem,
+      modelo: 'Pixel 8',
+      sesionLivenessId: 'liveness-sesion-1~carlos',
+    });
+
+    expect(
+      c.identidad.comprobarRostroDelTitular.mock.calls.map((l) => l[1]),
+    ).toEqual([undefined, undefined, undefined, 'liveness-sesion-1~carlos']);
+  });
+
+  it('dos revinculaciones a la vez: la perdedora responde 409 CONFLICTO_CONCURRENTE con su mensaje y queda en auditoría', async () => {
+    const c = crear();
+    c.tx.dispositivo.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint'), { code: 'P2002' }),
+    );
+    const { desafio } = await c.servicio.emitirDesafio(USUARIO);
+
+    await expect(
+      c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Telefono B',
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        codigo: 'CONFLICTO_CONCURRENTE',
+        mensaje: expect.stringContaining('al mismo tiempo'),
+      },
+    });
+    expect(c.auditoria.registrar).toHaveBeenCalledWith({
+      accion: 'dispositivo.revinculacion',
+      entidad: 'dispositivo',
+      resultado: 'fallo',
+      actorId: USUARIO,
+      detalle: { motivo: 'revinculacion_concurrente', modelo: 'Telefono B' },
+    });
+  });
+
+  it('CA-12: un rechazo de identidad queda auditado con el modelo y el código, sin datos biométricos', async () => {
+    const err = Object.assign(new Error('Rostro no coincide'), {
+      codigo: 'ROSTRO_NO_COINCIDE',
+    });
+    const c = crear({ identidadAprobada: true, comprobarRostroError: err });
+    const { desafio, sesionLivenessId } =
+      await c.servicio.emitirDesafio(USUARIO);
+
+    await expect(
+      c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Pixel 8',
+        sesionLivenessId,
+      }),
+    ).rejects.toBe(err);
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resultado: 'fallo',
+        detalle: { motivo: 'ROSTRO_NO_COINCIDE', modelo: 'Pixel 8' },
       }),
     );
   });

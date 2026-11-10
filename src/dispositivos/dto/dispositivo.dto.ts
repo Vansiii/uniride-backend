@@ -124,7 +124,7 @@ export class RevincularDispositivoDto {
 
   @ApiPropertyOptional({
     description:
-      'ID de la sesión de vivacidad completada si requiereIdentidad era true.',
+      'La sesión de vivacidad que devolvió este mismo desafío, ya completada, si requiereIdentidad era true.',
   })
   @IsOptional()
   @IsString()

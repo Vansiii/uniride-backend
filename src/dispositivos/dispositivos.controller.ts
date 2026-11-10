@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -125,12 +126,17 @@ export class DispositivosController {
   @ApiUnprocessableEntityResponse({
     type: ErrorDto,
     description:
-      '`ROSTRO_NO_COINCIDE` (similitud < 90 %), `PRUEBA_VIDA_FALLIDA` (vivacidad < 85 %) o `DISPOSITIVO_NO_INTEGRO`.',
+      '`ROSTRO_NO_COINCIDE` (similitud < 90 %), `PRUEBA_VIDA_FALLIDA` (vivacidad < 85 %, o sesión que no salió con este desafío) o `DISPOSITIVO_NO_INTEGRO`. Los dos primeros cuentan como intento.',
   })
   @ApiTooManyRequestsResponse({
     type: ErrorDto,
     description:
       '`INTENTOS_AGOTADOS`: tercer fallo de identidad o bloqueo vigente de 24 h (CA-7).',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`CONFLICTO_CONCURRENTE`: otra revinculación de la misma cuenta ganó al mismo tiempo; nada de esta cambió.',
   })
   @ApiServiceUnavailableResponse({
     type: ErrorDto,

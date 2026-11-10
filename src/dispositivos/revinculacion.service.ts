@@ -26,11 +26,28 @@ const desafioInvalido = () =>
     'dispositivo.vinculacion.desafio_invalido',
   );
 
+/**
+ * La sesión enviada vale solo si es la que se emitió con el desafío. El sufijo `~<rostro>` es la
+ * convención del motor simulado; Rekognition rechaza un id así, así que no abre nada en producción.
+ */
+const sesionDelDesafio = (enviada?: string, emitida?: string) =>
+  emitida && (enviada === emitida || enviada?.startsWith(`${emitida}~`))
+    ? enviada
+    : undefined;
+
+/** CA-8: fecha y hora de Bolivia para el correo, no un ISO. */
+const fechaLocal = (fecha: Date) =>
+  fecha.toLocaleString('es-BO', {
+    timeZone: 'America/La_Paz',
+    dateStyle: 'long',
+    timeStyle: 'short',
+  });
+
 @Injectable()
 export class RevinculacionService {
   private readonly desafios = new Map<
     string,
-    { usuarioId: string; venceEn: number }
+    { usuarioId: string; venceEn: number; sesionLivenessId?: string }
   >();
 
   constructor(
@@ -67,7 +84,8 @@ export class RevinculacionService {
 
     const desafio = randomBytes(32).toString('base64url');
     const venceEn = ahora + VIDA_DESAFIO_MS;
-    this.desafios.set(desafio, { usuarioId, venceEn });
+    // La sesión de prueba de vida queda atada a este desafío: vale una vez y solo con él.
+    this.desafios.set(desafio, { usuarioId, venceEn, sesionLivenessId });
 
     return {
       desafio,
@@ -97,6 +115,7 @@ export class RevinculacionService {
     ) {
       throw await this.rechazar(
         usuarioId,
+        dto.modelo,
         'desafio_invalido',
         desafioInvalido(),
       );
@@ -105,17 +124,32 @@ export class RevinculacionService {
     const requiereIdentidad =
       await this.identidad.tieneIdentidadAprobada(usuarioId);
     if (requiereIdentidad) {
-      await this.identidad.comprobarRostroDelTitular(
-        usuarioId,
-        dto.sesionLivenessId,
-      );
+      try {
+        // Una sesión que no salió con este desafío cuenta como prueba de vida fallida.
+        await this.identidad.comprobarRostroDelTitular(
+          usuarioId,
+          sesionDelDesafio(dto.sesionLivenessId, guardado.sesionLivenessId),
+        );
+      } catch (error) {
+        throw await this.rechazar(
+          usuarioId,
+          dto.modelo,
+          (error as { codigo?: string }).codigo ?? 'identidad',
+          error,
+        );
+      }
     }
 
     let llavePublica: string;
     try {
       llavePublica = normalizarLlavePublica(dto.llavePublicaPem);
     } catch (error) {
-      throw await this.rechazar(usuarioId, 'llave_invalida', error);
+      throw await this.rechazar(
+        usuarioId,
+        dto.modelo,
+        'llave_invalida',
+        error,
+      );
     }
 
     let resultado: ResultadoIntegridad;
@@ -125,12 +159,18 @@ export class RevinculacionService {
         dto.desafio,
       );
     } catch (error) {
-      throw await this.rechazar(usuarioId, 'servicio_no_disponible', error);
+      throw await this.rechazar(
+        usuarioId,
+        dto.modelo,
+        'servicio_no_disponible',
+        error,
+      );
     }
 
     if (!resultado.integro) {
       throw await this.rechazar(
         usuarioId,
+        dto.modelo,
         resultado.motivo ?? 'no_integro',
         new ErrorNegocio(
           422,
@@ -191,7 +231,7 @@ export class RevinculacionService {
           datos: {
             nombre: usuario.nombreCompleto,
             modelo: dto.modelo,
-            fecha: ahora.toISOString(),
+            fecha: fechaLocal(ahora),
           },
           referenciaTipo: 'dispositivo',
           referenciaId: id,
@@ -204,11 +244,12 @@ export class RevinculacionService {
       if ((error as { code?: string }).code === 'P2002') {
         throw await this.rechazar(
           usuarioId,
+          dto.modelo,
           'revinculacion_concurrente',
           new ErrorNegocio(
             409,
             'CONFLICTO_CONCURRENTE',
-            'comun.errores.interno',
+            'dispositivo.revincular.concurrente',
           ),
         );
       }
@@ -216,8 +257,10 @@ export class RevinculacionService {
     }
   }
 
+  /** CA-12: todo intento rechazado queda con cuenta, modelo y motivo, sin datos biométricos. */
   private async rechazar(
     usuarioId: string,
+    modelo: string,
     motivo: string,
     error: unknown,
   ): Promise<unknown> {
@@ -226,7 +269,7 @@ export class RevinculacionService {
       entidad: 'dispositivo',
       resultado: 'fallo',
       actorId: usuarioId,
-      detalle: { motivo },
+      detalle: { motivo, modelo },
     });
     return error;
   }
