@@ -89,7 +89,9 @@ describe('HU-29 CA-7, CA-4 y A-11 · catálogo de acciones sensibles (e2e)', () 
       const [metodo, ruta] = clave.split(' ');
       const operacion =
         body.paths[ruta.replace(/:(\w+)/g, '{$1}')][metodo.toLowerCase()];
-      expect(operacion.description).toContain(TEXTO_ACCION_SENSIBLE);
+      expect(`${clave}: ${operacion?.description ?? ''}`).toContain(
+        TEXTO_ACCION_SENSIBLE,
+      );
     }
   });
 });

@@ -6,7 +6,8 @@ import {
 } from './comun/firma-dispositivo.guard.js';
 import { FiltroErrores } from './comun/filtro-errores.filter.js';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import type { OperationObject } from '@nestjs/swagger/dist/interfaces/open-api-spec.interface.js';
+
+type Operacion = { description?: string } & Record<string, unknown>;
 
 /** Configuración compartida por main.ts y las pruebas e2e. */
 export function configurarAplicacion(app: INestApplication): void {
@@ -34,7 +35,7 @@ export function configurarAplicacion(app: INestApplication): void {
   );
   // `@AccionSensible` deja una extensión; aquí se vuelve texto, sin depender del orden de los decoradores.
   for (const ruta of Object.values(documento.paths))
-    for (const operacion of Object.values(ruta) as OperationObject[])
+    for (const operacion of Object.values(ruta) as Operacion[])
       if (operacion?.[EXTENSION_ACCION_SENSIBLE])
         operacion.description = [operacion.description, TEXTO_ACCION_SENSIBLE]
           .filter(Boolean)
