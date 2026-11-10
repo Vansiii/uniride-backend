@@ -150,6 +150,7 @@ export class IdentidadService implements OnModuleInit {
   async comprobarRostroDelTitular(
     usuarioId: string,
     sesionLivenessId?: string,
+    modelo?: string,
   ): Promise<void> {
     const fila = await this.prisma.identidad.findUnique({
       where: { usuarioId },
@@ -175,7 +176,11 @@ export class IdentidadService implements OnModuleInit {
     }
 
     if (!sesionLivenessId) {
-      throw await this.rechazarFalloRostro(usuarioId, 'prueba_vida_fallida');
+      throw await this.rechazarFalloRostro(
+        usuarioId,
+        'prueba_vida_fallida',
+        modelo,
+      );
     }
     if (!fila.claveS3Carnet) {
       this.registro.error(
@@ -199,14 +204,22 @@ export class IdentidadService implements OnModuleInit {
       vivacidad.confianza < CONFIANZA_MINIMA_LIVENESS ||
       !vivacidad.imagenReferencia
     ) {
-      throw await this.rechazarFalloRostro(usuarioId, 'prueba_vida_fallida');
+      throw await this.rechazarFalloRostro(
+        usuarioId,
+        'prueba_vida_fallida',
+        modelo,
+      );
     }
 
     const similitud = await this.motor((m) =>
       m.compararRostros(vivacidad.imagenReferencia!, carnet),
     );
     if (similitud === null || similitud < SIMILITUD_MINIMA) {
-      throw await this.rechazarFalloRostro(usuarioId, 'rostro_no_coincide');
+      throw await this.rechazarFalloRostro(
+        usuarioId,
+        'rostro_no_coincide',
+        modelo,
+      );
     }
 
     if (fila.intentosFallidos > 0) {
@@ -501,6 +514,7 @@ export class IdentidadService implements OnModuleInit {
   private async rechazarFalloRostro(
     usuarioId: string,
     motivo: 'prueba_vida_fallida' | 'rostro_no_coincide',
+    modelo?: string,
   ): Promise<ErrorNegocio> {
     const bloqueadoHasta = await this.prisma.$transaction(async (tx) => {
       const ahora = new Date();
@@ -531,14 +545,18 @@ export class IdentidadService implements OnModuleInit {
             motivo,
             intentos: fila.intentosFallidos,
             bloqueada: hasta !== null,
+            ...(modelo && { modelo }),
           },
         },
         tx,
       );
       return hasta;
     });
-    return bloqueadoHasta
+    const error = bloqueadoHasta
       ? intentosAgotados(bloqueadoHasta)
       : RECHAZOS[motivo]();
+    // Ya quedó en auditoría con sus intentos: quien lo recibe no lo vuelve a registrar (CA-12).
+    Object.defineProperty(error, 'auditado', { value: true });
+    return error;
   }
 }

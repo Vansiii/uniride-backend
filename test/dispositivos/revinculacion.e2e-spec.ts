@@ -223,11 +223,11 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       const r4 = await pedirDesafioRevinculacion(p.token).expect(429);
       expect(r4.body.codigo).toBe('INTENTOS_AGOTADOS');
 
-      // CA-12: cada rechazo queda con cuenta, modelo y motivo, sin datos biométricos
+      // CA-12: cada rechazo queda una sola vez con cuenta, modelo y motivo, sin datos biométricos. Los de rostro
+      // los registra identidad con sus intentos; el 4.º es el desafío pedido durante el bloqueo: todavía no hay modelo.
       const fallos = (await auditoriasDe(p.id)).filter(
-        (r) => r.entidad === 'dispositivo' && r.resultado === 'fallo',
+        (r) => r.resultado === 'fallo',
       );
-      // El 4.º es el desafío pedido durante el bloqueo: todavía no hay modelo.
       expect(fallos).toHaveLength(4);
       expect(fallos[0].detalle).toEqual({ motivo: 'INTENTOS_AGOTADOS' });
       for (const f of fallos.slice(1))
@@ -235,10 +235,12 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       for (const f of fallos) expect(f.creado_en).toBeInstanceOf(Date);
       expect(fallos.map((f) => f.detalle.motivo)).toEqual([
         'INTENTOS_AGOTADOS',
-        'INTENTOS_AGOTADOS',
-        'ROSTRO_NO_COINCIDE',
-        'ROSTRO_NO_COINCIDE',
+        'rostro_no_coincide',
+        'rostro_no_coincide',
+        'rostro_no_coincide',
       ]);
+      expect(fallos.slice(1).map((f) => f.detalle.intentos)).toEqual([3, 2, 1]);
+      expect(fallos[1].detalle.bloqueada).toBe(true);
       expect(JSON.stringify(fallos)).not.toMatch(
         /ROSTRO:|sim-|carnet|imagen|foto|similitud|confianza/i,
       );

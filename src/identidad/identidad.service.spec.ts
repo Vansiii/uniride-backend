@@ -792,6 +792,34 @@ describe('HU-10 · comprobarRostroDelTitular y revinculacion', () => {
     });
   });
 
+  it('comprobarRostroDelTitular: el fallo queda auditado una vez con el modelo y marcado para no repetirlo (CA-12)', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+      tras: { id: 'i1', intentosFallidos: 1 },
+    });
+    const error = await c.servicio
+      .comprobarRostroDelTitular(USUARIO, undefined, 'Pixel 8')
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      auditado: true,
+      response: { codigo: 'PRUEBA_VIDA_FALLIDA' },
+    });
+    expect(c.auditoria.registrar).toHaveBeenCalledTimes(1);
+    expect(c.auditoria.registrar.mock.calls[0][0]).toMatchObject({
+      detalle: {
+        motivo: 'prueba_vida_fallida',
+        intentos: 1,
+        modelo: 'Pixel 8',
+      },
+    });
+  });
+
   it('comprobarRostroDelTitular: tercer intento fallido bloquea 24 h y responde 429 INTENTOS_AGOTADOS', async () => {
     const c = crear({
       fila: {

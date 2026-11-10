@@ -379,4 +379,54 @@ describe('RevinculacionService · revincular', () => {
       }),
     );
   });
+  it('CA-12: un fallo de rostro que identidad ya auditó no se registra otra vez', async () => {
+    const err = Object.assign(new Error('Rostro no coincide'), {
+      codigo: 'ROSTRO_NO_COINCIDE',
+    });
+    Object.defineProperty(err, 'auditado', { value: true });
+    const c = crear({ identidadAprobada: true, comprobarRostroError: err });
+    const { desafio, sesionLivenessId } =
+      await c.servicio.emitirDesafio(USUARIO);
+
+    await expect(
+      c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Pixel 8',
+        sesionLivenessId,
+      }),
+    ).rejects.toBe(err);
+    expect(c.identidad.comprobarRostroDelTitular).toHaveBeenCalledWith(
+      USUARIO,
+      sesionLivenessId,
+      'Pixel 8',
+    );
+    expect(c.auditoria.registrar).not.toHaveBeenCalled();
+  });
+
+  it('A-08: un teléfono no íntegro se rechaza antes de la identidad y no suma intento', async () => {
+    const c = crear({
+      identidadAprobada: true,
+      verificarIntegridad: {
+        integro: false,
+        veredicto: 'NO_INTEGRO',
+        motivo: 'emulador',
+      },
+    });
+    const { desafio } = await c.servicio.emitirDesafio(USUARIO);
+
+    await expect(
+      c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Pixel 8',
+        sesionLivenessId: 'inventada',
+      }),
+    ).rejects.toMatchObject({
+      response: { codigo: 'DISPOSITIVO_NO_INTEGRO' },
+    });
+    expect(c.identidad.comprobarRostroDelTitular).not.toHaveBeenCalled();
+  });
 });

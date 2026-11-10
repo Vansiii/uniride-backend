@@ -111,8 +111,8 @@ export class RevinculacionService {
   /**
    * CA-2, CA-4, CA-5, CA-6, CA-8, CA-10 y CA-11:
    * 1. Consume desafío (un solo uso).
-   * 2. Si requiere identidad: valida prueba de vida y compara con carnet. Fallos suman y bloquean 24 h al 3.º (CA-7).
-   * 3. Normaliza llave pública y valida Play Integrity.
+   * 2. Normaliza llave pública y valida Play Integrity.
+   * 3. Si requiere identidad: valida prueba de vida y compara con carnet. Fallos suman y bloquean 24 h al 3.º (CA-7).
    * 4. Transacción atómica: desactiva anterior(es), inserta nuevo, audita y encola correo de aviso.
    */
   async revincular(
@@ -132,25 +132,6 @@ export class RevinculacionService {
         'desafio_invalido',
         desafioInvalido(),
       );
-    }
-
-    const requiereIdentidad =
-      await this.identidad.tieneIdentidadAprobada(usuarioId);
-    if (requiereIdentidad) {
-      try {
-        // Una sesión que no salió con este desafío cuenta como prueba de vida fallida.
-        await this.identidad.comprobarRostroDelTitular(
-          usuarioId,
-          sesionDelDesafio(dto.sesionLivenessId, guardado.sesionLivenessId),
-        );
-      } catch (error) {
-        throw await this.rechazar(
-          usuarioId,
-          dto.modelo,
-          (error as { codigo?: string }).codigo ?? 'identidad',
-          error,
-        );
-      }
     }
 
     let llavePublica: string;
@@ -186,6 +167,29 @@ export class RevinculacionService {
           'dispositivo.vinculacion.no_integro',
         ),
       );
+    }
+
+    // Después de la llave y de Play Integrity: sin un teléfono íntegro no se gasta ni se suma un intento de identidad.
+    const requiereIdentidad =
+      await this.identidad.tieneIdentidadAprobada(usuarioId);
+    if (requiereIdentidad) {
+      try {
+        // Una sesión que no salió con este desafío cuenta como prueba de vida fallida.
+        await this.identidad.comprobarRostroDelTitular(
+          usuarioId,
+          sesionDelDesafio(dto.sesionLivenessId, guardado.sesionLivenessId),
+          dto.modelo,
+        );
+      } catch (error) {
+        // Un fallo de rostro ya quedó auditado con sus intentos; el resto (bloqueo, motor caído) se registra aquí.
+        if ((error as { auditado?: boolean }).auditado) throw error;
+        throw await this.rechazar(
+          usuarioId,
+          dto.modelo,
+          (error as { codigo?: string }).codigo ?? 'identidad',
+          error,
+        );
+      }
     }
 
     try {
