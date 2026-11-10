@@ -9,8 +9,13 @@ import {
   Injectable,
   Logger,
   Module,
+  SetMetadata,
   UseGuards,
+  applyDecorators,
+  type Type,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ApiExtension, ApiHeader } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import type { UsuarioToken } from './decoradores.js';
@@ -106,6 +111,7 @@ export class FirmaDispositivoGuard implements CanActivate {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly nonces: RegistroNonces,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(contexto: ExecutionContext): Promise<boolean> {
@@ -116,7 +122,11 @@ export class FirmaDispositivoGuard implements CanActivate {
 
     const fallo = await this.comprobar(peticion, usuarioId);
     if (fallo === null) return true;
-    this.auditarFallo(usuarioId, fallo.motivo);
+    const accion = this.reflector.get<string | undefined>(
+      ACCION_SENSIBLE,
+      contexto.getHandler(),
+    );
+    this.auditarFallo(usuarioId, fallo.motivo, accion);
     throw fallo.error;
   }
 
@@ -201,23 +211,64 @@ export class FirmaDispositivoGuard implements CanActivate {
   }
 
   /** Sin datos sensibles: ni firma, ni nonce, ni ruta. Una falla al auditar no cambia la respuesta. */
-  private auditarFallo(usuarioId: string, motivo: string): void {
+  private auditarFallo(
+    usuarioId: string,
+    motivo: string,
+    accionSensible?: string,
+  ): void {
     this.auditoria
       .registrar({
         accion: 'dispositivo.firma',
         entidad: 'dispositivo',
         resultado: 'fallo',
         actorId: usuarioId,
-        detalle: { motivo },
+        detalle: accionSensible ? { motivo, accionSensible } : { motivo },
       })
       .catch(() => this.registro.warn('No se pudo auditar la firma fallida'));
   }
 }
 
-/** Marca un endpoint (o controlador) sensible: exige firma del dispositivo, además de la sesión. */
-export const RequiereFirmaDispositivo = () => UseGuards(FirmaDispositivoGuard);
+/** Las cabeceras de la firma en Swagger. */
+export const CabecerasFirma = () =>
+  applyDecorators(
+    ApiHeader({
+      name: 'X-Dispositivo-Id',
+      description: 'Dispositivo vinculado.',
+    }),
+    ApiHeader({ name: 'X-Timestamp', description: 'Epoch en milisegundos.' }),
+    ApiHeader({ name: 'X-Nonce', description: 'De un solo uso.' }),
+    ApiHeader({
+      name: 'X-Firma',
+      description: 'Firma ECDSA P-256 del mensaje canónico, en Base64.',
+    }),
+  );
 
-/** Los módulos con endpoints `@RequiereFirmaDispositivo()` (HU-12, HU-13, HU-17...) importan este módulo. */
+/** Exige firma del dispositivo sin ser una acción sensible de la RN-1 de HU-29 (p. ej. `GET /billetera/mia`, decisión de HU-12). */
+export const RequiereFirmaDispositivo = () =>
+  applyDecorators(UseGuards(FirmaDispositivoGuard), CabecerasFirma());
+
+/** Metadato con el nombre de la acción sensible; lo leen el guard (auditoría) y la prueba de catálogo (HU-29 CA-7). */
+export const ACCION_SENSIBLE = 'uniride:accion-sensible';
+/** Extensión de Swagger que `configurarAplicacion` convierte en el texto de la operación. */
+export const EXTENSION_ACCION_SENSIBLE = 'x-accion-sensible';
+export const TEXTO_ACCION_SENSIBLE =
+  'Requiere firma biométrica del teléfono vinculado.';
+
+/**
+ * Acción que mueve dinero o verifica un viaje (HU-29 RN-1): pide la firma del teléfono vinculado, cuya llave solo
+ * firma tras la huella o el rostro. `antes` son los guards que deben correr primero (organización, cuenta, identidad),
+ * para que quien no cumple reciba su 403 antes que el 401 de la firma; se pasan aquí porque el orden de varios
+ * `@UseGuards` en un método depende del orden de los decoradores.
+ */
+export const AccionSensible = (nombre: string, ...antes: Type<CanActivate>[]) =>
+  applyDecorators(
+    SetMetadata(ACCION_SENSIBLE, nombre),
+    UseGuards(...antes, FirmaDispositivoGuard),
+    ApiExtension(EXTENSION_ACCION_SENSIBLE, nombre),
+    CabecerasFirma(),
+  );
+
+/** Los módulos con endpoints `@AccionSensible` o `@RequiereFirmaDispositivo()` (HU-12, HU-13, HU-17...) importan este módulo. */
 @Module({
   providers: [RegistroNonces, FirmaDispositivoGuard],
   exports: [RegistroNonces, FirmaDispositivoGuard],

@@ -14,12 +14,18 @@ const contexto = {
 } as unknown as ExecutionContext;
 
 describe('CA-4 · guards de la billetera', () => {
-  it('todo el controlador exige cuenta activa, identidad y firma, en ese orden', () => {
+  it('todo el controlador exige cuenta activa e identidad, y cada método la firma después (Nest corre los de la clase antes)', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, BilleteraController)).toEqual([
       CuentaActivaGuard,
       IdentidadVerificadaGuard,
-      FirmaDispositivoGuard,
     ]);
+    for (const metodo of [
+      BilleteraController.prototype.crear,
+      BilleteraController.prototype.mia,
+    ])
+      expect(Reflect.getMetadata(GUARDS_METADATA, metodo)).toEqual([
+        FirmaDispositivoGuard,
+      ]);
   });
 
   it('HU-14: saldo y movimientos exigen cuenta activa e identidad, sin firma de dispositivo', () => {

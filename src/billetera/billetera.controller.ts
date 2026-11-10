@@ -3,7 +3,6 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -13,7 +12,10 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
-import { FirmaDispositivoGuard } from '../comun/firma-dispositivo.guard.js';
+import {
+  AccionSensible,
+  RequiereFirmaDispositivo,
+} from '../comun/firma-dispositivo.guard.js';
 import { IdentidadVerificadaGuard } from '../comun/identidad.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import { BilleteraService } from './billetera.service.js';
@@ -25,17 +27,11 @@ const SERVICIO_NO_DISPONIBLE =
 
 /**
  * La billetera es de la persona (D-07): se busca siempre por el usuario del token, sin organización ni id en la ruta.
- * Identidad antes que firma: quien no verificó recibe 403 aunque todavía no tenga dispositivo vinculado (CA-4).
+ * Identidad antes que firma: quien no verificó recibe 403 aunque todavía no tenga dispositivo vinculado (CA-4); los guards
+ * de la clase corren antes que la firma de cada método.
  */
 @ApiTags('billetera')
 @ApiBearerAuth()
-@ApiHeader({ name: 'X-Dispositivo-Id', description: 'Dispositivo vinculado.' })
-@ApiHeader({ name: 'X-Timestamp', description: 'Epoch en milisegundos.' })
-@ApiHeader({ name: 'X-Nonce', description: 'De un solo uso.' })
-@ApiHeader({
-  name: 'X-Firma',
-  description: 'Firma ECDSA P-256 del mensaje canónico, en Base64.',
-})
 @ApiUnauthorizedResponse({
   type: ErrorDto,
   description:
@@ -49,12 +45,13 @@ const SERVICIO_NO_DISPONIBLE =
   type: ErrorDto,
   description: SERVICIO_NO_DISPONIBLE,
 })
-@UseGuards(CuentaActivaGuard, IdentidadVerificadaGuard, FirmaDispositivoGuard)
+@UseGuards(CuentaActivaGuard, IdentidadVerificadaGuard)
 @Controller('billetera')
 export class BilleteraController {
   constructor(private readonly servicio: BilleteraService) {}
 
   @Post()
+  @AccionSensible('billetera.crear')
   @ApiOperation({
     summary: 'Crea mi billetera o devuelve la que ya tengo (idempotente)',
     description:
@@ -75,6 +72,7 @@ export class BilleteraController {
   }
 
   @Get('mia')
+  @RequiereFirmaDispositivo()
   @ApiOperation({ summary: 'Mi dirección pública y saldo URC' })
   @ApiOkResponse({ type: BilleteraDto })
   @ApiNotFoundResponse({

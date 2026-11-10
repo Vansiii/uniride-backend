@@ -14,7 +14,6 @@ import {
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiTags,
@@ -26,7 +25,7 @@ import {
   UsuarioActual,
   type UsuarioToken,
 } from '../comun/decoradores.js';
-import { FirmaDispositivoGuard } from '../comun/firma-dispositivo.guard.js';
+import { AccionSensible } from '../comun/firma-dispositivo.guard.js';
 import { IdentidadVerificadaGuard } from '../comun/identidad.guard.js';
 import { OrganizacionGuard } from '../comun/organizacion.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
@@ -50,22 +49,12 @@ export class ViajesController {
 
   /** La firma va al final: una petición que se rechazará por otro motivo no gasta su nonce. */
   @Post()
-  @UseGuards(
+  @AccionSensible(
+    'viaje.publicar',
     OrganizacionGuard,
     CuentaActivaGuard,
     IdentidadVerificadaGuard,
-    FirmaDispositivoGuard,
   )
-  @ApiHeader({
-    name: 'X-Dispositivo-Id',
-    description: 'Dispositivo vinculado.',
-  })
-  @ApiHeader({ name: 'X-Timestamp', description: 'Epoch en milisegundos.' })
-  @ApiHeader({ name: 'X-Nonce', description: 'De un solo uso.' })
-  @ApiHeader({
-    name: 'X-Firma',
-    description: 'Firma ECDSA P-256 del mensaje canónico, en Base64.',
-  })
   @ApiCreatedResponse({
     type: ViajePublicadoDto,
     description: 'Publicado en la organización activa del conductor.',
