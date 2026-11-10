@@ -107,6 +107,23 @@ describe('RevinculacionService · emitirDesafio', () => {
       USUARIO,
     );
   });
+
+  it('CA-12: un intento frenado al pedir el desafío (bloqueo) queda en auditoría y no emite desafío', async () => {
+    const c = crear({ identidadAprobada: true });
+    const bloqueo = Object.assign(new Error('bloqueada'), {
+      codigo: 'INTENTOS_AGOTADOS',
+    });
+    c.identidad.crearSesionLivenessRevinculacion.mockRejectedValueOnce(bloqueo);
+
+    await expect(c.servicio.emitirDesafio(USUARIO)).rejects.toBe(bloqueo);
+    expect(c.auditoria.registrar).toHaveBeenCalledWith({
+      accion: 'dispositivo.revinculacion',
+      entidad: 'dispositivo',
+      resultado: 'fallo',
+      actorId: USUARIO,
+      detalle: { motivo: 'INTENTOS_AGOTADOS' },
+    });
+  });
 });
 
 describe('RevinculacionService · revincular', () => {
@@ -266,6 +283,8 @@ describe('RevinculacionService · revincular', () => {
     for (const sesionLivenessId of [
       'liveness-de-otro-desafio',
       'liveness-sesion-1-extra',
+      // El sufijo del motor simulado sobre un id de Rekognition no pasa.
+      'liveness-sesion-1~carlos',
       undefined,
     ]) {
       const { desafio } = await c.servicio.emitirDesafio(USUARIO);
@@ -277,18 +296,33 @@ describe('RevinculacionService · revincular', () => {
         sesionLivenessId,
       });
     }
-    const { desafio } = await c.servicio.emitirDesafio(USUARIO);
-    await c.servicio.revincular(USUARIO, {
-      desafio,
-      tokenIntegridad: 'simulado',
-      llavePublicaPem: pem,
-      modelo: 'Pixel 8',
-      sesionLivenessId: 'liveness-sesion-1~carlos',
-    });
+    for (const [emitida, enviada] of [
+      ['liveness-sesion-1', 'liveness-sesion-1'],
+      ['sim-sesion-1', 'sim-sesion-1~carlos'],
+    ]) {
+      c.identidad.crearSesionLivenessRevinculacion.mockResolvedValueOnce(
+        emitida,
+      );
+      const { desafio } = await c.servicio.emitirDesafio(USUARIO);
+      await c.servicio.revincular(USUARIO, {
+        desafio,
+        tokenIntegridad: 'simulado',
+        llavePublicaPem: pem,
+        modelo: 'Pixel 8',
+        sesionLivenessId: enviada,
+      });
+    }
 
     expect(
       c.identidad.comprobarRostroDelTitular.mock.calls.map((l) => l[1]),
-    ).toEqual([undefined, undefined, undefined, 'liveness-sesion-1~carlos']);
+    ).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'liveness-sesion-1',
+      'sim-sesion-1~carlos',
+    ]);
   });
 
   it('dos revinculaciones a la vez: la perdedora responde 409 CONFLICTO_CONCURRENTE con su mensaje y queda en auditoría', async () => {

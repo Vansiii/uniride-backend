@@ -27,11 +27,14 @@ const desafioInvalido = () =>
   );
 
 /**
- * La sesión enviada vale solo si es la que se emitió con el desafío. El sufijo `~<rostro>` es la
- * convención del motor simulado; Rekognition rechaza un id así, así que no abre nada en producción.
+ * La sesión enviada vale solo si es la que se emitió con el desafío. El sufijo `~<rostro>` es la convención del
+ * motor simulado y solo se acepta sobre sus ids (`sim-…`): con un id de Rekognition, el sufijo cuenta como prueba de
+ * vida fallida en vez de llegar al servicio como un 503 que no suma intento.
  */
 const sesionDelDesafio = (enviada?: string, emitida?: string) =>
-  emitida && (enviada === emitida || enviada?.startsWith(`${emitida}~`))
+  emitida &&
+  (enviada === emitida ||
+    (emitida.startsWith('sim-') && enviada?.startsWith(`${emitida}~`)))
     ? enviada
     : undefined;
 
@@ -69,8 +72,18 @@ export class RevinculacionService {
     let sesionLivenessId: string | undefined;
 
     if (requiereIdentidad) {
-      sesionLivenessId =
-        await this.identidad.crearSesionLivenessRevinculacion(usuarioId);
+      try {
+        sesionLivenessId =
+          await this.identidad.crearSesionLivenessRevinculacion(usuarioId);
+      } catch (error) {
+        // CA-12: un intento frenado al empezar (bloqueo o motor caído) también queda; aún no hay modelo.
+        throw await this.rechazar(
+          usuarioId,
+          undefined,
+          (error as { codigo?: string }).codigo ?? 'identidad',
+          error,
+        );
+      }
     }
 
     const ahora = Date.now();
@@ -255,7 +268,7 @@ export class RevinculacionService {
   /** CA-12: todo intento rechazado queda con cuenta, modelo y motivo, sin datos biométricos. */
   private async rechazar(
     usuarioId: string,
-    modelo: string,
+    modelo: string | undefined,
     motivo: string,
     error: unknown,
   ): Promise<unknown> {
@@ -264,7 +277,7 @@ export class RevinculacionService {
       entidad: 'dispositivo',
       resultado: 'fallo',
       actorId: usuarioId,
-      detalle: { motivo, modelo },
+      detalle: { motivo, ...(modelo && { modelo }) },
     });
     return error;
   }
