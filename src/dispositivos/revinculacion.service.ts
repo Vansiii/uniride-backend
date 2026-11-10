@@ -144,12 +144,7 @@ export class RevinculacionService {
     try {
       llavePublica = normalizarLlavePublica(dto.llavePublicaPem);
     } catch (error) {
-      throw await this.rechazar(
-        usuarioId,
-        dto.modelo,
-        'llave_invalida',
-        error,
-      );
+      throw await this.rechazar(usuarioId, dto.modelo, 'llave_invalida', error);
     }
 
     let resultado: ResultadoIntegridad;

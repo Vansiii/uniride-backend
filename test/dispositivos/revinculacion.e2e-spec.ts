@@ -135,6 +135,9 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       expect(correos.length).toBeGreaterThanOrEqual(1);
       expect(correos[0].plantilla).toBe('dispositivo_revinculado');
       expect(correos[0].datos).toMatchObject({ modelo: 'Galaxy S24' });
+      // La fecha va legible para la persona (hora de Bolivia), no en ISO.
+      expect(correos[0].datos.fecha).toMatch(/\d{4}/);
+      expect(correos[0].datos.fecha).not.toMatch(/T\d{2}:\d{2}/);
 
       // CA-12: Auditoría registrada sin datos biométricos
       const aud = await auditoriasDe(u.id);
@@ -220,6 +223,24 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       const r4 = await pedirDesafioRevinculacion(p.token).expect(429);
       expect(r4.body.codigo).toBe('INTENTOS_AGOTADOS');
 
+      // CA-12: cada rechazo queda con cuenta, modelo y motivo, sin datos biométricos
+      const fallos = (await auditoriasDe(p.id)).filter(
+        (r) => r.entidad === 'dispositivo' && r.resultado === 'fallo',
+      );
+      expect(fallos).toHaveLength(3);
+      for (const f of fallos) {
+        expect(f.detalle.modelo).toBe('HackerPhone');
+        expect(f.creado_en).toBeInstanceOf(Date);
+      }
+      expect(fallos.map((f) => f.detalle.motivo)).toEqual([
+        'INTENTOS_AGOTADOS',
+        'ROSTRO_NO_COINCIDE',
+        'ROSTRO_NO_COINCIDE',
+      ]);
+      expect(JSON.stringify(fallos)).not.toMatch(
+        /ROSTRO:|sim-|carnet|imagen|foto|similitud|confianza/i,
+      );
+
       // El dispositivo original sigue activo
       const disp = await dispositivosDe(p.id);
       expect(disp).toHaveLength(1);
@@ -238,7 +259,7 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
       const des2 = (await pedirDesafioRevinculacion(u.token).expect(201)).body
         .desafio;
 
-      await Promise.allSettled([
+      const respuestas = await Promise.all([
         revincular(u.token, {
           desafio: des1,
           tokenIntegridad: INTEGRO,
@@ -252,6 +273,13 @@ describe('HU-10 · Volver a vincular o cambiar de teléfono (e2e)', () => {
           modelo: 'Telefono B',
         }),
       ]);
+
+      // Cada una gana o pierde con 409 y su código; nunca un 500
+      for (const r of respuestas) {
+        expect([201, 409]).toContain(r.status);
+        if (r.status === 409)
+          expect(r.body.codigo).toBe('CONFLICTO_CONCURRENTE');
+      }
 
       // Nunca quedan dos dispositivos activos
       const dispActivos = (await dispositivosDe(u.id)).filter((d) => d.activo);
