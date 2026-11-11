@@ -260,7 +260,11 @@ export const TEXTO_ACCION_SENSIBLE =
  * para que quien no cumple reciba su 403 antes que el 401 de la firma; se pasan aquí porque el orden de varios
  * `@UseGuards` en un método depende del orden de los decoradores.
  */
-export const AccionSensible = (nombre: string, ...antes: Type<CanActivate>[]) =>
+// Solo en métodos: el guard y el catálogo leen la marca del handler, no de la clase.
+export const AccionSensible = (
+  nombre: string,
+  ...antes: Type<CanActivate>[]
+): MethodDecorator =>
   applyDecorators(
     SetMetadata(ACCION_SENSIBLE, nombre),
     UseGuards(...antes, FirmaDispositivoGuard),
