@@ -11,6 +11,6 @@ import { IdentidadService } from './identidad.service.js';
   imports: [AlmacenamientoModule, BilleteraModule],
   controllers: [IdentidadController],
   providers: [IdentidadService, RekognitionService, IdentidadVerificadaGuard],
-  exports: [IdentidadVerificadaGuard],
+  exports: [IdentidadVerificadaGuard, IdentidadService],
 })
 export class IdentidadModule {}

@@ -28,6 +28,17 @@ describe('Salud (e2e)', () => {
       .expect({ estado: 'ok' });
   });
 
+  it('no manda ETag: un GET repetido nunca vuelve como 304 vacío', async () => {
+    const primera = await request(app.getHttpServer())
+      .get('/api/v1/salud')
+      .expect(200);
+    expect(primera.headers.etag).toBeUndefined();
+    await request(app.getHttpServer())
+      .get('/api/v1/salud')
+      .set('If-None-Match', 'W/"cualquiera"')
+      .expect(200);
+  });
+
   it('expone la documentación Swagger en /api/docs-json', async () => {
     const respuesta = await request(app.getHttpServer())
       .get('/api/docs-json')

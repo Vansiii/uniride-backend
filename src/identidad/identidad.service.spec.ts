@@ -64,6 +64,7 @@ function crear(o: Opciones = {}) {
   const almacenamiento = {
     subir: vi.fn().mockResolvedValue(undefined),
     borrar: vi.fn().mockResolvedValue(undefined),
+    descargar: vi.fn().mockResolvedValue(Buffer.from('carnet-bytes')),
   };
   const billetera = { crearAutomatica: vi.fn().mockResolvedValue(undefined) };
   const motor = new MotorFacialSimulado();
@@ -626,5 +627,259 @@ describe('IdentidadService.onModuleInit', () => {
   it('en pruebas no lo exige', () => {
     vi.stubEnv('IDENTIDAD_SECRETO', '');
     expect(() => crear().servicio.onModuleInit()).not.toThrow();
+  });
+});
+
+describe('HU-10 · comprobarRostroDelTitular y revinculacion', () => {
+  it('tieneIdentidadAprobada: true solo si estado es verificada', async () => {
+    const c1 = crear({ fila: { estado: 'verificada' } });
+    expect(await c1.servicio.tieneIdentidadAprobada(USUARIO)).toBe(true);
+
+    const c2 = crear({ fila: { estado: 'no_verificada' } });
+    expect(await c2.servicio.tieneIdentidadAprobada(USUARIO)).toBe(false);
+
+    const c3 = crear({ fila: null });
+    expect(await c3.servicio.tieneIdentidadAprobada(USUARIO)).toBe(false);
+  });
+
+  it('crearSesionLivenessRevinculacion: con bloqueo lanza 429 INTENTOS_AGOTADOS', async () => {
+    const hasta = new Date(Date.now() + 3_600_000);
+    const c = crear({ fila: { estado: 'verificada', bloqueadoHasta: hasta } });
+    await expect(
+      c.servicio.crearSesionLivenessRevinculacion(USUARIO),
+    ).rejects.toMatchObject({
+      status: 429,
+      response: { codigo: 'INTENTOS_AGOTADOS' },
+    });
+  });
+
+  it('crearSesionLivenessRevinculacion: sin bloqueo devuelve id de sesion', async () => {
+    const c = crear({ fila: { estado: 'verificada', bloqueadoHasta: null } });
+    const id = await c.servicio.crearSesionLivenessRevinculacion(USUARIO);
+    expect(typeof id).toBe('string');
+  });
+
+  it('comprobarRostroDelTitular: si no está verificada no hace nada', async () => {
+    const c = crear({ fila: { estado: 'no_verificada' } });
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).resolves.toBeUndefined();
+    expect(c.almacenamiento.descargar).not.toHaveBeenCalled();
+  });
+
+  it('comprobarRostroDelTitular: con bloqueo vigente responde 429 INTENTOS_AGOTADOS', async () => {
+    const hasta = new Date(Date.now() + 3_600_000);
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 3,
+        bloqueadoHasta: hasta,
+      },
+    });
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 429,
+      response: { codigo: 'INTENTOS_AGOTADOS' },
+    });
+    expect(c.almacenamiento.descargar).not.toHaveBeenCalled();
+  });
+
+  it('comprobarRostroDelTitular: sin sesionLivenessId lanza PRUEBA_VIDA_FALLIDA y suma intento', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+      tras: {
+        id: 'i1',
+        intentosFallidos: 1,
+      },
+    });
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, undefined),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { codigo: 'PRUEBA_VIDA_FALLIDA' },
+    });
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: 'dispositivo.revinculacion',
+        resultado: 'fallo',
+        detalle: expect.objectContaining({ motivo: 'prueba_vida_fallida' }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('comprobarRostroDelTitular: falla al descargar carnet de S3 lanza 503 sin contar intento', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+    });
+    c.almacenamiento.descargar.mockRejectedValue(new Error('S3 error'));
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 503,
+      response: { codigo: 'SERVICIO_NO_DISPONIBLE' },
+    });
+    expect(c.identidad.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('comprobarRostroDelTitular: vivacidad fallida suma intento y audita', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+      tras: {
+        id: 'i1',
+        intentosFallidos: 1,
+      },
+    });
+    c.liveness.mockResolvedValueOnce({
+      exitosa: false,
+      confianza: 50,
+      imagenReferencia: null,
+    });
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { codigo: 'PRUEBA_VIDA_FALLIDA' },
+    });
+  });
+
+  it('comprobarRostroDelTitular: rostro no coincide suma intento y audita', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+      tras: {
+        id: 'i1',
+        intentosFallidos: 1,
+      },
+    });
+    c.liveness.mockResolvedValueOnce({
+      exitosa: true,
+      confianza: 99,
+      imagenReferencia: Buffer.from('ref'),
+    });
+    c.comparar.mockResolvedValueOnce(60); // < 90%
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { codigo: 'ROSTRO_NO_COINCIDE' },
+    });
+  });
+
+  it('comprobarRostroDelTitular: el fallo queda auditado una vez con el modelo y marcado para no repetirlo (CA-12)', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+      tras: { id: 'i1', intentosFallidos: 1 },
+    });
+    const error = await c.servicio
+      .comprobarRostroDelTitular(USUARIO, undefined, 'Pixel 8')
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({
+      auditado: true,
+      response: { codigo: 'PRUEBA_VIDA_FALLIDA' },
+    });
+    expect(c.auditoria.registrar).toHaveBeenCalledTimes(1);
+    expect(c.auditoria.registrar.mock.calls[0][0]).toMatchObject({
+      detalle: {
+        motivo: 'prueba_vida_fallida',
+        intentos: 1,
+        modelo: 'Pixel 8',
+      },
+    });
+  });
+
+  it('comprobarRostroDelTitular: tercer intento fallido bloquea 24 h y responde 429 INTENTOS_AGOTADOS', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 2,
+        bloqueadoHasta: null,
+      },
+      tras: {
+        id: 'i1',
+        intentosFallidos: 3,
+      },
+    });
+    c.liveness.mockResolvedValueOnce({
+      exitosa: true,
+      confianza: 99,
+      imagenReferencia: Buffer.from('ref'),
+    });
+    c.comparar.mockResolvedValueOnce(50);
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 429,
+      response: { codigo: 'INTENTOS_AGOTADOS' },
+    });
+    expect(c.identidad.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { usuarioId: USUARIO },
+        data: expect.objectContaining({
+          bloqueadoHasta: expect.any(Date),
+        }),
+      }),
+    );
+  });
+
+  it('comprobarRostroDelTitular: vivacidad y comparacion exitosas resuelven y resetean fallos', async () => {
+    const c = crear({
+      fila: {
+        id: 'i1',
+        estado: 'verificada',
+        claveS3Carnet: 'identidades/carnet.jpg',
+        intentosFallidos: 1,
+        bloqueadoHasta: null,
+      },
+    });
+    c.liveness.mockResolvedValueOnce({
+      exitosa: true,
+      confianza: 95,
+      imagenReferencia: Buffer.from('ref'),
+    });
+    c.comparar.mockResolvedValueOnce(95);
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).resolves.toBeUndefined();
+    expect(c.identidad.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { usuarioId: USUARIO },
+        data: { intentosFallidos: 0, bloqueadoHasta: null },
+      }),
+    );
   });
 });

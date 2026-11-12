@@ -27,6 +27,12 @@ class AlmacenFalso implements Almacen {
     if (this.fallarBorrado) throw new Error(`S3 caído al borrar ${clave}`);
     this.archivos.delete(clave);
   }
+
+  async descargar(clave: string): Promise<Buffer> {
+    const archivo = this.archivos.get(clave);
+    if (!archivo) throw new Error(`Archivo no encontrado: ${clave}`);
+    return archivo.contenido;
+  }
 }
 
 const MARCA = 'CONTENIDO-PRIVADO-DE-LA-FOTO';

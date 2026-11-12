@@ -2,12 +2,14 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
@@ -15,11 +17,14 @@ import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import {
   DesafioAtestacionDto,
+  DesafioRevinculacionDto,
   DispositivoVinculadoDto,
   MiDispositivoDto,
+  RevincularDispositivoDto,
   VincularDispositivoDto,
 } from './dto/dispositivo.dto.js';
 import { DispositivosService } from './dispositivos.service.js';
+import { RevinculacionService } from './revinculacion.service.js';
 
 /** El dispositivo es de la persona y vale en todas sus organizaciones (D-07): basta la sesión. */
 @ApiTags('dispositivos')
@@ -27,7 +32,10 @@ import { DispositivosService } from './dispositivos.service.js';
 @ApiUnauthorizedResponse({ type: ErrorDto, description: '`NO_AUTENTICADO`' })
 @Controller('dispositivos')
 export class DispositivosController {
-  constructor(private readonly servicio: DispositivosService) {}
+  constructor(
+    private readonly servicio: DispositivosService,
+    private readonly revinculacionServicio: RevinculacionService,
+  ) {}
 
   @Post('desafio-atestacion')
   @ApiOperation({
@@ -81,5 +89,64 @@ export class DispositivosController {
   })
   miDispositivo(@UsuarioActual() usuario: UsuarioToken) {
     return this.servicio.miDispositivo(usuario.id);
+  }
+
+  @Post('revinculacion')
+  @ApiOperation({
+    summary:
+      'Pide el desafío de un solo uso para volver a vincular o cambiar de teléfono (HU-10)',
+  })
+  @ApiCreatedResponse({ type: DesafioRevinculacionDto })
+  @ApiTooManyRequestsResponse({
+    type: ErrorDto,
+    description:
+      '`INTENTOS_AGOTADOS`: la cuenta está bloqueada 24 h por fallos previos (CA-7).',
+  })
+  @ApiServiceUnavailableResponse({
+    type: ErrorDto,
+    description:
+      '`SERVICIO_NO_DISPONIBLE`: el servicio de vivacidad no respondió.',
+  })
+  desafioRevinculacion(@UsuarioActual() usuario: UsuarioToken) {
+    return this.revinculacionServicio.emitirDesafio(usuario.id);
+  }
+
+  @Post('revincular')
+  @HttpCode(201)
+  @ApiOperation({
+    summary:
+      'Vuelve a vincular el teléfono: valida identidad (si aplica) e integridad, reemplazando el anterior (HU-10)',
+  })
+  @ApiCreatedResponse({ type: DispositivoVinculadoDto })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description:
+      '`DESAFIO_INVALIDO` (vencido, ya usado o de otra cuenta) o `LLAVE_INVALIDA`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorDto,
+    description:
+      '`ROSTRO_NO_COINCIDE` (similitud < 90 %), `PRUEBA_VIDA_FALLIDA` (vivacidad < 85 %, o sesión que no salió con este desafío) o `DISPOSITIVO_NO_INTEGRO`. Los dos primeros cuentan como intento.',
+  })
+  @ApiTooManyRequestsResponse({
+    type: ErrorDto,
+    description:
+      '`INTENTOS_AGOTADOS`: tercer fallo de identidad o bloqueo vigente de 24 h (CA-7).',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`CONFLICTO_CONCURRENTE`: otra revinculación de la misma cuenta ganó al mismo tiempo; nada de esta cambió.',
+  })
+  @ApiServiceUnavailableResponse({
+    type: ErrorDto,
+    description:
+      '`SERVICIO_NO_DISPONIBLE`: Play Integrity o Rekognition no respondieron; nada cambia (CA-11).',
+  })
+  revincular(
+    @UsuarioActual() usuario: UsuarioToken,
+    @Body() dto: RevincularDispositivoDto,
+  ) {
+    return this.revinculacionServicio.revincular(usuario.id, dto);
   }
 }

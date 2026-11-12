@@ -32,7 +32,7 @@ model Usuario {
   membresias     Membresia[]
   vehiculo       Vehiculo?
   identidad      Identidad?
-  dispositivo    Dispositivo?
+  dispositivos   Dispositivo[]
   billetera      Billetera?
   ordenesRecarga OrdenRecarga[]
   viajes         Viaje[]
@@ -256,19 +256,22 @@ model Identidad {
 
 /// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Un dispositivo por cuenta en v1 (A-02).
 /// Solo se guarda la llave pública; la privada nunca sale del Keystore del teléfono.
+/// En HU-10 pasa a 1–N para conservar el historial de teléfonos inactivos (RN-6).
 model Dispositivo {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  usuarioId           String    @unique @map("usuario_id") @db.Uuid
+  usuarioId           String    @map("usuario_id") @db.Uuid
   llavePublica        String    @map("llave_publica")
   algoritmo           String    @default("ECDSA_P256")
   modeloDispositivo   String    @map("modelo_dispositivo")
   veredictoIntegridad String    @map("veredicto_integridad")
   activo              Boolean   @default(true)
   vinculadoEn         DateTime  @default(now()) @map("vinculado_en") @db.Timestamptz(3)
+  desactivadoEn       DateTime? @map("desactivado_en") @db.Timestamptz(3)
   ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
 
   usuario Usuario @relation(fields: [usuarioId], references: [id])
 
+  @@index([usuarioId])
   @@map("dispositivos")
 }
 
