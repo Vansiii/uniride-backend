@@ -1,7 +1,9 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import {
+  AccionSensible,
   FirmaDispositivoGuard,
   mensajeCanonico,
   RegistroNonces,
@@ -61,9 +63,15 @@ function peticion(
   };
 }
 
-const contexto = (req: object) =>
+const sinAccion = () => undefined;
+class Controlador {
+  @AccionSensible('prueba.accion')
+  accion() {}
+}
+const contexto = (req: object, manejador: () => void = sinAccion) =>
   ({
     switchToHttp: () => ({ getRequest: () => req }),
+    getHandler: () => manejador,
   }) as unknown as ExecutionContext;
 
 function crear(
@@ -81,8 +89,10 @@ function crear(
     prisma as unknown as PrismaService,
     auditoria as unknown as AuditoriaService,
     nonces,
+    new Reflector(),
   );
-  const intentar = (req: object) => guard.canActivate(contexto(req));
+  const intentar = (req: object, manejador?: () => void) =>
+    guard.canActivate(contexto(req, manejador));
   return { guard, prisma, auditoria, nonces, intentar };
 }
 
@@ -328,6 +338,18 @@ describe('FirmaDispositivoGuard', () => {
         actorId: USUARIO,
         detalle: { motivo: 'firma' },
       });
+    });
+
+    it('en una acción sensible (HU-29) registra también su nombre', async () => {
+      const o = crear();
+      await o
+        .intentar(peticion({ llave: intruso }), Controlador.prototype.accion)
+        .catch(() => undefined);
+      expect(o.auditoria.registrar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          detalle: { motivo: 'firma', accionSensible: 'prueba.accion' },
+        }),
+      );
     });
 
     it('una falla al auditar no cambia la respuesta', async () => {

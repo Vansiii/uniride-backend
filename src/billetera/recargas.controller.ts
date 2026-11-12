@@ -15,7 +15,6 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiGoneResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -24,7 +23,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
-import { RequiereFirmaDispositivo } from '../comun/firma-dispositivo.guard.js';
+import { AccionSensible } from '../comun/firma-dispositivo.guard.js';
 import { IdentidadVerificadaGuard } from '../comun/identidad.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import { CuentaActivaGuard } from './cuenta-activa.guard.js';
@@ -70,21 +69,11 @@ export class RecargasController {
   }
 
   @Post(':id/confirmar')
-  @RequiereFirmaDispositivo()
+  @AccionSensible('recarga.confirmar')
   @ApiOperation({
     summary: 'Confirma el pago simulado y acredita la recarga (idempotente)',
     description:
       'Responde sin esperar a la cadena; el estado se consulta en `GET /billetera/recargas/:id`.',
-  })
-  @ApiHeader({
-    name: 'X-Dispositivo-Id',
-    description: 'Dispositivo vinculado.',
-  })
-  @ApiHeader({ name: 'X-Timestamp', description: 'Epoch en milisegundos.' })
-  @ApiHeader({ name: 'X-Nonce', description: 'De un solo uso.' })
-  @ApiHeader({
-    name: 'X-Firma',
-    description: 'Firma ECDSA P-256 del mensaje canónico, en Base64.',
   })
   @ApiAcceptedResponse({
     type: OrdenRecargaDto,
