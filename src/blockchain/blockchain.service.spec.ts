@@ -1,12 +1,14 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { id, zeroPadValue } from 'ethers';
+import { AbiCoder, id, Wallet, zeroPadValue } from 'ethers';
 import {
   BlockchainService,
   CadenaReal,
   CadenaSimulada,
   crearCadena,
+  ErrorBloqueoPermanente,
   formatearUrc,
+  nombreDeReversion,
   unidadesAUrc,
   urcAUnidades,
 } from './blockchain.service.js';
@@ -19,6 +21,8 @@ const LLAVE =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const ID_ORDEN = `0x${'11'.repeat(32)}`;
 const HASH = `0x${'ab'.repeat(32)}`;
+const ESCROW = '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512';
+const ID_RESERVA = `0x${'33'.repeat(32)}`;
 
 describe('formatearUrc', () => {
   it.each([
@@ -80,6 +84,18 @@ describe('crearCadena', () => {
     expect(crearCadena({ ...valido, CADENA_ID })).toBeInstanceOf(CadenaReal);
   });
 
+  it('rechaza una DIRECCION_ESCROW inválida; vacía se acepta fuera de producción (contrato sin desplegar)', () => {
+    expect(() => crearCadena({ ...valido, DIRECCION_ESCROW: '0x123' })).toThrow(
+      'DIRECCION_ESCROW',
+    );
+    expect(crearCadena({ ...valido, DIRECCION_ESCROW: ESCROW })).toBeInstanceOf(
+      CadenaReal,
+    );
+    expect(crearCadena({ ...valido, DIRECCION_ESCROW: '' })).toBeInstanceOf(
+      CadenaReal,
+    );
+  });
+
   it('exige CADENA_RPC_URL', () => {
     expect(() => crearCadena({ ...valido, CADENA_RPC_URL: '' })).toThrow(
       'CADENA_RPC_URL',
@@ -128,6 +144,119 @@ describe('CadenaSimulada', () => {
     await cadena.acunarRecarga(DIRECCION, URC, `0x${'22'.repeat(32)}`);
     expect(await cadena.leerSaldo(DIRECCION)).toBe(URC * 2n);
     expect(await cadena.leerSaldo(TOKEN)).toBe(0n);
+  });
+});
+
+describe('CadenaSimulada · bloquear reserva', () => {
+  const pasajero = new Wallet(LLAVE);
+  const conductor = DIRECCION;
+  const datos = (monto = 10n * URC, idReserva = ID_RESERVA) => ({
+    idReserva,
+    llavePagador: LLAVE,
+    conductor,
+    monto,
+  });
+  const fondeada = async (monto: bigint) => {
+    const cadena = new CadenaSimulada();
+    await cadena.acunarRecarga(pasajero.address, monto, ID_ORDEN);
+    return cadena;
+  };
+
+  it('mueve el monto del pasajero al escrow y registra la reserva; no crea saldo', async () => {
+    const cadena = await fondeada(50n * URC);
+    const hash = await cadena.bloquearReserva(datos());
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(40n * URC);
+    expect(await cadena.leerSaldo(conductor)).toBe(0n);
+    expect(await cadena.estadoReservaEscrow(ID_RESERVA)).toEqual({
+      estado: 'bloqueada',
+      pagador: pasajero.address,
+      conductor,
+      monto: 10n * URC,
+    });
+    expect(await cadena.hashDeBloqueo(ID_RESERVA)).toBe(hash);
+  });
+
+  it('repetir la misma reserva devuelve el mismo hash sin bloquear de nuevo', async () => {
+    const cadena = await fondeada(50n * URC);
+    const hash = await cadena.bloquearReserva(datos());
+    expect(await cadena.bloquearReserva(datos())).toBe(hash);
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(40n * URC);
+  });
+
+  it('la misma reserva con otro monto es ReservaExistente: permanente', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    await expect(cadena.bloquearReserva(datos(5n * URC))).rejects.toMatchObject(
+      {
+        motivo: 'ReservaExistente',
+      },
+    );
+  });
+
+  it('sin saldo rechaza como el contrato, con una falla permanente y sin tocar nada', async () => {
+    const cadena = await fondeada(5n * URC);
+    const falla = cadena.bloquearReserva(datos());
+    await expect(falla).rejects.toBeInstanceOf(ErrorBloqueoPermanente);
+    await expect(falla).rejects.toMatchObject({
+      motivo: 'ERC20InsufficientBalance',
+    });
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(5n * URC);
+    expect((await cadena.estadoReservaEscrow(ID_RESERVA)).estado).toBe(
+      'ninguno',
+    );
+  });
+
+  it('pagador igual al conductor o monto cero: DatosInvalidos', async () => {
+    const cadena = await fondeada(50n * URC);
+    await expect(
+      cadena.bloquearReserva({ ...datos(), conductor: pasajero.address }),
+    ).rejects.toMatchObject({ motivo: 'DatosInvalidos' });
+    await expect(cadena.bloquearReserva(datos(0n))).rejects.toMatchObject({
+      motivo: 'DatosInvalidos',
+    });
+  });
+
+  it('el hash de una reserva que nunca se bloqueó no existe', async () => {
+    await expect(
+      new CadenaSimulada().hashDeBloqueo(ID_RESERVA),
+    ).rejects.toThrow();
+  });
+});
+
+describe('nombreDeReversion', () => {
+  const reversion = (extra: object) =>
+    Object.assign(new Error('revert'), { code: 'CALL_EXCEPTION', ...extra });
+
+  it('lee el error personalizado de los datos, que ethers no decodifica al estimar el gas', () => {
+    expect(nombreDeReversion(reversion({ data: '0x91bdcb8d' }))).toBe(
+      'DatosInvalidos',
+    );
+    expect(
+      nombreDeReversion(reversion({ info: { error: { data: '0x91bdcb8d' } } })),
+    ).toBe('DatosInvalidos');
+  });
+
+  it('usa el nombre que ethers ya decodificó', () => {
+    expect(
+      nombreDeReversion(reversion({ revert: { name: 'ReservaExistente' } })),
+    ).toBe('ReservaExistente');
+  });
+
+  it.each([
+    ['un nodo caído', { code: 'SERVER_ERROR', data: '0x91bdcb8d' }],
+    ['un tiempo agotado', { code: 'TIMEOUT' }],
+    ['datos de otro contrato', { code: 'CALL_EXCEPTION', data: '0xdeadbeef' }],
+    ['sin datos', { code: 'CALL_EXCEPTION', data: '0x' }],
+  ])('%s no es una reversión conocida', (_, error) => {
+    expect(nombreDeReversion(Object.assign(new Error('x'), error))).toBe(
+      undefined,
+    );
+  });
+
+  it('un valor que no es un error tampoco', () => {
+    expect(nombreDeReversion(undefined)).toBeUndefined();
+    expect(nombreDeReversion('texto')).toBeUndefined();
   });
 });
 
@@ -328,6 +457,69 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
         ),
       ).rejects.toThrow('DIRECCION_TOKEN_URC');
       expect(nodo.llamadas).toEqual([]);
+    });
+  });
+
+  describe('escrow', () => {
+    const datos = {
+      idReserva: ID_RESERVA,
+      llavePagador: LLAVE,
+      conductor: DIRECCION,
+      monto: 10n * URC,
+    };
+
+    it('sin escrow, token o llave del relayer rechaza sin llamar al nodo', async () => {
+      await expect(
+        new CadenaReal(url, TOKEN, 31337, undefined, LLAVE).bloquearReserva(
+          datos,
+        ),
+      ).rejects.toThrow('DIRECCION_ESCROW');
+      await expect(
+        new CadenaReal(
+          url,
+          TOKEN,
+          31337,
+          undefined,
+          undefined,
+          ESCROW,
+        ).bloquearReserva(datos),
+      ).rejects.toThrow('RELAYER_LLAVE_PRIVADA');
+      await expect(
+        new CadenaReal(
+          url,
+          '',
+          31337,
+          undefined,
+          LLAVE,
+          ESCROW,
+        ).bloquearReserva(datos),
+      ).rejects.toThrow('DIRECCION_TOKEN_URC');
+      await expect(
+        new CadenaReal(url, TOKEN, 31337).estadoReservaEscrow(ID_RESERVA),
+      ).rejects.toThrow('DIRECCION_ESCROW');
+      expect(nodo.llamadas).toEqual([]);
+    });
+
+    it('estadoReservaEscrow lee la reserva del contrato y traduce su estado', async () => {
+      nodo.llamada = AbiCoder.defaultAbiCoder().encode(
+        ['address', 'address', 'uint256', 'uint8', 'bytes32'],
+        [DIRECCION, TOKEN, 10n * URC, 1, `0x${'00'.repeat(32)}`],
+      );
+      const cadena = new CadenaReal(
+        url,
+        TOKEN,
+        31337,
+        undefined,
+        LLAVE,
+        ESCROW,
+      );
+      expect(await cadena.estadoReservaEscrow(ID_RESERVA)).toEqual({
+        estado: 'bloqueada',
+        pagador: DIRECCION,
+        conductor: TOKEN,
+        monto: 10n * URC,
+      });
+      expect(nodo.llamadas[0].a?.toLowerCase()).toBe(ESCROW.toLowerCase());
     });
   });
 

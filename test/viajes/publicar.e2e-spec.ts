@@ -163,6 +163,29 @@ describe('HU-17 · publicar viaje (e2e)', () => {
       await v.publicar(c, cuerpoViaje({ precioPorAsiento })).expect(201);
     });
 
+    it.each([1.01, 10.51, 19.99, 7.55])(
+      'HU-19 RN-11: %s no es múltiplo de 0,02 y el reparto 50/50 no daría centavos exactos: 400',
+      async (precioPorAsiento) => {
+        const c = await v.conductor(org.id);
+        const r = await v
+          .publicar(c, cuerpoViaje({ precioPorAsiento }))
+          .expect(400);
+        expect(r.body).toMatchObject({
+          codigo: 'PRECIO_NO_MULTIPLO',
+          paso: 0.02,
+        });
+        await nadaPublicado(c);
+      },
+    );
+
+    it.each([1.02, 10.5, 12, 19.98])(
+      'HU-19 RN-11: %s sí es múltiplo de 0,02',
+      async (precioPorAsiento) => {
+        const c = await v.conductor(org.id);
+        await v.publicar(c, cuerpoViaje({ precioPorAsiento })).expect(201);
+      },
+    );
+
     it('más de 2 decimales: no se redondea en silencio', async () => {
       const c = await v.conductor(org.id);
       await v.publicar(c, cuerpoViaje({ precioPorAsiento: 1.005 })).expect(400);

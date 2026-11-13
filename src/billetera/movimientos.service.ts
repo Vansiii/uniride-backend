@@ -28,6 +28,8 @@ export interface NuevoMovimiento {
 export interface ResumenLibro {
   contable: bigint;
   bloqueado: bigint;
+  /** Bloqueos de reserva que aún esperan a la cadena: ya comprometen el saldo aunque `contable` todavía no los reste (HU-19 RN-4). */
+  bloqueosPendientes: bigint;
   pendientes: number;
   confirmados: number;
 }
@@ -128,11 +130,15 @@ export class MovimientosService {
    * Contable: recarga, liberación y reembolso suman; bloqueo resta. Un bloqueo sigue retenido mientras su reserva no
    * tenga liberación ni reembolso confirmados, en cualquier billetera: la liberación se acredita al conductor.
    */
-  async resumen(billeteraId: string): Promise<ResumenLibro> {
-    const [fila] = await this.prisma.$queryRaw<
+  async resumen(
+    billeteraId: string,
+    tx: Transaccion | PrismaService = this.prisma,
+  ): Promise<ResumenLibro> {
+    const [fila] = await tx.$queryRaw<
       {
         contable: string;
         bloqueado: string;
+        bloqueos_pendientes: string;
         pendientes: number;
         confirmados: number;
       }[]
@@ -148,6 +154,9 @@ export class MovimientosService {
               AND r.tipo IN ('liberacion_viaje', 'reembolso_reserva')
           )
         ), 0)::text AS bloqueado,
+        COALESCE(SUM(m.monto) FILTER (
+          WHERE m.estado = 'pendiente' AND m.tipo = 'bloqueo_reserva'
+        ), 0)::text AS bloqueos_pendientes,
         COUNT(*) FILTER (WHERE m.estado = 'pendiente')::int AS pendientes,
         COUNT(*) FILTER (WHERE m.estado = 'confirmado')::int AS confirmados
       FROM movimientos_billetera m
@@ -155,6 +164,7 @@ export class MovimientosService {
     return {
       contable: urcAUnidades(fila.contable),
       bloqueado: urcAUnidades(fila.bloqueado),
+      bloqueosPendientes: urcAUnidades(fila.bloqueos_pendientes),
       pendientes: fila.pendientes,
       confirmados: fila.confirmados,
     };

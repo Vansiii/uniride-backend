@@ -36,6 +36,7 @@ model Usuario {
   billetera      Billetera?
   ordenesRecarga OrdenRecarga[]
   viajes         Viaje[]
+  reservas       Reserva[]
 
   @@map("usuarios")
 }
@@ -88,6 +89,7 @@ model Organizacion {
   invitaciones Invitacion[]
   dominios     DominioOrganizacion[]
   viajes       Viaje[]
+  reservas     Reserva[]
 
   @@map("organizaciones")
 }
@@ -222,6 +224,7 @@ model Viaje {
   organizacion Organizacion @relation(fields: [organizacionId], references: [id])
   conductor    Usuario      @relation(fields: [conductorId], references: [id])
   vehiculo     Vehiculo     @relation(fields: [vehiculoId], references: [id])
+  reservas     Reserva[]
 
   @@index([organizacionId, estado, fechaHoraSalida, cuposDisponibles], map: "idx_viajes_busqueda")
   @@index([conductorId, fechaHoraSalida])
@@ -308,6 +311,7 @@ model MovimientoBilletera {
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   billetera Billetera       @relation(fields: [billeteraId], references: [id])
+  reserva   Reserva?        @relation(fields: [reservaId], references: [id], onDelete: Restrict)
   trabajo   TrabajoOnchain?
 
   @@index([billeteraId, creadoEn(sort: Desc)])
@@ -368,4 +372,30 @@ model CorreoSaliente {
   @@index([estado, proximoIntentoEn])
   @@index([referenciaTipo, referenciaId])
   @@map("correos_salientes")
+}
+
+// --- HU-19: reserva con escrow ---
+
+/// Dato institucional: lleva `organizacion_id` y RLS (A-13). El monto lo fija el servidor con el precio del viaje.
+/// Estados (D-23): pendiente → confirmada → abordada → verificada → pagada; además fallida y verificacion_fallida.
+model Reserva {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId    String   @map("organizacion_id") @db.Uuid
+  viajeId           String   @map("viaje_id") @db.Uuid
+  pasajeroId        String   @map("pasajero_id") @db.Uuid
+  monto             Decimal  @db.Decimal(12, 2)
+  estado            String   @default("pendiente")
+  claveIdempotencia String   @unique @map("clave_idempotencia")
+  motivo            String?
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn     DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion          @relation(fields: [organizacionId], references: [id])
+  viaje        Viaje                 @relation(fields: [viajeId], references: [id])
+  pasajero     Usuario               @relation(fields: [pasajeroId], references: [id])
+  movimientos  MovimientoBilletera[]
+
+  @@index([viajeId, estado])
+  @@index([pasajeroId, creadoEn(sort: Desc)])
+  @@map("reservas")
 }

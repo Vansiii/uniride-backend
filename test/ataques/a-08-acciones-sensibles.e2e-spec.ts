@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   prepararEntorno,
   DOMINIO,
@@ -10,11 +11,8 @@ import {
   RUTA_RECARGAS,
   type Dispositivo,
 } from '../billetera/ayudas-billetera.js';
-import {
-  ayudasViajes,
-  cuerpoViaje,
-  RUTA_VIAJES,
-} from '../viajes/ayudas-viajes.js';
+import { cuerpoViaje, RUTA_VIAJES } from '../viajes/ayudas-viajes.js';
+import { ayudasReservas, rutaReservar } from '../reservas/ayudas-reservas.js';
 import { rutasRegistradas } from './catalogo-rutas.js';
 
 interface Caso {
@@ -39,7 +37,9 @@ interface Caso {
 describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)', () => {
   let e: Entorno;
   const b = ayudasBilletera(() => e);
-  const v = ayudasViajes(() => e);
+  const rs = ayudasReservas(() => e);
+  // Mismo contador de correos que las reservas: dos clientes de viajes crearían el mismo `conductor1@…`.
+  const v = rs.v;
   let organizacionId: string;
   let n = 0;
 
@@ -83,6 +83,21 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
         sinEfecto: async () => expect(await v.filas(c.id)).toEqual([]),
       };
     },
+    'reserva.crear': async () => {
+      const viajeId = await rs.publicar(await rs.conductor(organizacionId));
+      const p = await rs.pasajero(organizacionId);
+      return {
+        usuarioId: p.id,
+        token: p.token,
+        dispositivo: p.dispositivo,
+        ruta: rutaReservar(viajeId),
+        cuerpo: { claveIdempotencia: randomUUID() },
+        exito: 201,
+        auditoria: 'reserva.creada',
+        sinEfecto: async () =>
+          expect(await rs.huella(p.id)).toEqual({ reservas: 0, bloqueos: 0 }),
+      };
+    },
   };
 
   beforeAll(async () => {
@@ -90,8 +105,7 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
     organizacionId = (await v.organizacion('Acciones A08')).id;
   });
   beforeEach(async () => {
-    b.preparar();
-    await b.vaciarCola();
+    await rs.preparar();
   });
   afterAll(async () => {
     await e.cerrar();

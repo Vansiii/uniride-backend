@@ -34,6 +34,7 @@ import {
   DetalleViajeDto,
   LimitesViajeDto,
   MiViajeDto,
+  PasajeroViajeDto,
   PublicarViajeDto,
   ViajeEncontradoDto,
   ViajePublicadoDto,
@@ -62,7 +63,7 @@ export class ViajesController {
   @ApiBadRequestResponse({
     type: ErrorDto,
     description:
-      '`CUPOS_EXCEDEN_CAPACIDAD` (trae `maximo`), `PRECIO_FUERA_DE_RANGO` (trae `minimo` y `maximo`), `HORARIO_INVALIDO` (trae `minimoMinutos` y `maximoDias`), `LUGARES_IGUALES` o `VALIDACION_FALLIDA`.',
+      '`CUPOS_EXCEDEN_CAPACIDAD` (trae `maximo`), `PRECIO_FUERA_DE_RANGO` (trae `minimo` y `maximo`), `PRECIO_NO_MULTIPLO` (trae `paso`: 0,02 URC), `HORARIO_INVALIDO` (trae `minimoMinutos` y `maximoDias`), `LUGARES_IGUALES` o `VALIDACION_FALLIDA`.',
   })
   @ApiUnauthorizedResponse({
     type: ErrorDto,
@@ -119,7 +120,7 @@ export class ViajesController {
     type: ViajeEncontradoDto,
     isArray: true,
     description:
-      'Viajes de la organización activa con salida a 1 km y ± 30 minutos, con cupos y aún sin salir, por hora de salida. Máximo 50. Lista vacía si no hay.',
+      'Viajes de la organización activa con salida a 1 km y ± 30 minutos, con cupos y aún sin salir, por hora de salida, sin los propios. Máximo 50. Lista vacía si no hay.',
   })
   @ApiBadRequestResponse({
     type: ErrorDto,
@@ -130,10 +131,32 @@ export class ViajesController {
     description: '`NO_AUTORIZADO`: sin membresía aprobada.',
   })
   buscar(
+    @UsuarioActual() usuario: UsuarioToken,
     @OrganizacionActual() organizacionId: string,
     @Query() consulta: BuscarViajesDto,
   ): Promise<ViajeEncontradoDto[]> {
-    return this.servicio.buscar(organizacionId, consulta);
+    return this.servicio.buscar(organizacionId, usuario.id, consulta);
+  }
+
+  /** Solo el conductor del viaje (HU-19 CA-14). */
+  @Get(':id/pasajeros')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({ type: PasajeroViajeDto, isArray: true })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_ENCONTRADO`: no existe, es de otra organización o no eres su conductor.',
+  })
+  pasajeros(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PasajeroViajeDto[]> {
+    return this.servicio.pasajeros(usuario.id, organizacionId, id);
   }
 
   @Get(':id')

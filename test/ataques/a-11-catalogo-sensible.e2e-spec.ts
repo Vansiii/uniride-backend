@@ -11,6 +11,7 @@ const CONSTRUIDAS = [
   'POST /api/v1/billetera',
   'POST /api/v1/billetera/recargas/:id/confirmar',
   'POST /api/v1/viajes',
+  'POST /api/v1/viajes/:id/reservas',
 ];
 
 /** Escrituras de estos módulos que NO piden biometría, cada una con su motivo (RN-2). */
