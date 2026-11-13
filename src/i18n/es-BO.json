@@ -89,5 +89,11 @@
   "dispositivo.vinculacion.llave_invalida": "La llave del teléfono no es válida.",
   "dispositivo.revincular.concurrente": "Otro teléfono se vinculó a tu cuenta al mismo tiempo. Revisa «Mi teléfono» antes de intentarlo de nuevo.",
   "dispositivo.vinculacion.servicio_no_disponible": "No pudimos comprobar tu teléfono en este momento. Inténtalo de nuevo más tarde.",
-  "dispositivo.autenticacion.cancelada": "Cancelaste la autenticación biométrica; la acción no se realizó."
+  "dispositivo.autenticacion.cancelada": "Cancelaste la autenticación biométrica; la acción no se realizó.",
+  "viajes.publicar.precio_multiplo": "El precio por asiento debe ser múltiplo de 0,02 URC.",
+  "reservas.confirmar.saldo_insuficiente": "Tu saldo disponible no alcanza para este pasaje. Recarga para reservarlo.",
+  "reservas.confirmar.sin_asientos": "Ya no quedan asientos en este viaje.",
+  "reservas.confirmar.viaje_propio": "No puedes reservar tu propio viaje.",
+  "reservas.confirmar.ya_reservado": "Ya tienes una reserva en este viaje.",
+  "reservas.confirmar.no_disponible": "Este viaje ya no admite reservas."
 }

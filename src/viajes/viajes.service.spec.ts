@@ -166,7 +166,7 @@ describe('ViajesService.buscar', () => {
     [{ origenLng: undefined }],
   ])('coordenadas %j: rechaza sin consultar', async (extra) => {
     const { servicio, tx } = crear();
-    expect(await codigoDe(servicio.buscar(ORG, consulta(extra)))).toBe(
+    expect(await codigoDe(servicio.buscar(ORG, 'u1', consulta(extra)))).toBe(
       'COORDENADAS_INVALIDAS',
     );
     expect(tx.$queryRaw).not.toHaveBeenCalled();
@@ -178,7 +178,9 @@ describe('ViajesService.buscar', () => {
   ])('hora %s: lista vacía sin consultar', async (_, ms) => {
     const { servicio, tx } = crear();
     const horaSalida = new Date(Date.now() + ms).toISOString();
-    expect(await servicio.buscar(ORG, consulta({ horaSalida }))).toEqual([]);
+    expect(await servicio.buscar(ORG, 'u1', consulta({ horaSalida }))).toEqual(
+      [],
+    );
     expect(tx.$queryRaw).not.toHaveBeenCalled();
   });
 
@@ -202,7 +204,7 @@ describe('ViajesService.buscar', () => {
         color: 'Rojo',
       },
     ]);
-    const [viaje] = await servicio.buscar(ORG, consulta());
+    const [viaje] = await servicio.buscar(ORG, 'u1', consulta());
     expect(viaje.distanciaKm).toBe(0.35);
     expect(viaje.precioPorAsiento).toBe(10.5);
     expect(viaje.conductor).toEqual({

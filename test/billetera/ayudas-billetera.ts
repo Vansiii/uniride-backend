@@ -3,10 +3,12 @@ import { Wallet } from 'ethers';
 import {
   BlockchainService,
   CadenaSimulada,
+  type DatosBloqueo,
+  type ReservaEscrow,
 } from '../../src/blockchain/blockchain.service.js';
 import { TrabajosOnchainService } from '../../src/blockchain/trabajos-onchain.service.js';
 import { mensajeCanonico } from '../../src/comun/firma-dispositivo.guard.js';
-import { DOMINIO, type Entorno } from '../ayudas-organizaciones.js';
+import { DOMINIO, PREFIJO, type Entorno } from '../ayudas-organizaciones.js';
 
 export const URC = 10n ** 18n;
 
@@ -19,6 +21,9 @@ export class CadenaControlable extends CadenaSimulada {
   perderRespuesta = false;
   lecturas = 0;
   acunaciones = 0;
+  intentosDeBloqueo = 0;
+  /** El nodo bloquea pero la respuesta no llega; se apaga sola tras una vez (HU-19). */
+  perderRespuestaDeBloqueo = false;
   override saldos = new Map<string, bigint>();
 
   override async leerSaldo(direccion?: string): Promise<bigint> {
@@ -51,6 +56,32 @@ export class CadenaControlable extends CadenaSimulada {
       throw Object.assign(new Error('sin respuesta'), { code: 'TIMEOUT' });
     }
     return hash;
+  }
+
+  override async bloquearReserva(datos: DatosBloqueo): Promise<string> {
+    this.intentosDeBloqueo++;
+    if (this.fallar)
+      throw Object.assign(
+        new Error('nodo caído en https://nodo.test/clave-rpc'),
+        { code: 'SERVER_ERROR' },
+      );
+    const hash = await super.bloquearReserva(datos);
+    if (this.perderRespuestaDeBloqueo) {
+      this.perderRespuestaDeBloqueo = false;
+      throw Object.assign(new Error('sin respuesta'), { code: 'TIMEOUT' });
+    }
+    return hash;
+  }
+
+  override async estadoReservaEscrow(
+    idReserva: string,
+  ): Promise<ReservaEscrow> {
+    if (this.fallar)
+      throw Object.assign(
+        new Error('nodo caído en https://nodo.test/clave-rpc'),
+        { code: 'SERVER_ERROR' },
+      );
+    return super.estadoReservaEscrow(idReserva);
   }
 
   override exploradorUrl(): string | null {
@@ -175,6 +206,47 @@ export function ayudasBilletera(e: () => Entorno) {
     );
     return { billetera: rows[0].id as string, direccion };
   };
+  /**
+   * `movimientos_billetera.reserva_id` ahora apunta a una reserva real (HU-19): se crea una de relleno, con su
+   * organización, viaje y personas, para las pruebas del libro que solo necesitan un identificador.
+   */
+  const asegurarReserva = async (reservaId: string) => {
+    const { rows: existe } = await e().bd.query(
+      `SELECT 1 FROM reservas WHERE id = $1`,
+      [reservaId],
+    );
+    if (existe.length) return;
+    const n = randomUUID().slice(0, 8);
+    const q = async (sql: string, args: unknown[]) =>
+      (await e().bd.query(sql, args)).rows[0].id as string;
+    const org = await q(
+      `INSERT INTO organizaciones (nombre, nombre_normalizado, tipo, precio_maximo_urc) VALUES ($1, $2, 'universidad', 20) RETURNING id`,
+      [`${PREFIJO}relleno ${n}`, `${PREFIJO}relleno ${n}`.toLowerCase()],
+    );
+    const usuario = (rol: string) =>
+      q(
+        `INSERT INTO usuarios (correo, hash_contrasena, nombre_completo) VALUES ($1, 'x', 'Relleno') RETURNING id`,
+        [`${rol}.${n}${DOMINIO}`],
+      );
+    const conductor = await usuario('conductor');
+    const pasajero = await usuario('pasajero');
+    const vehiculo = await q(
+      `INSERT INTO vehiculos (propietario_id, placa, marca, modelo, color, capacidad, clave_s3_foto, consentimiento_foto_en)
+       VALUES ($1, $2, 'Toyota', 'Corolla', 'Blanco', 4, 'clave', now()) RETURNING id`,
+      [conductor, `${1000 + (parseInt(n, 16) % 9000)}REL`],
+    );
+    const viaje = await q(
+      `INSERT INTO viajes (organizacion_id, conductor_id, vehiculo_id, origen_nombre, origen_lat, origen_lng, destino_nombre,
+                           destino_lat, destino_lng, fecha_hora_salida, cupos_totales, cupos_disponibles, precio_por_asiento)
+       VALUES ($1, $2, $3, 'A', -17.78, -63.18, 'B', -17.77, -63.19, now() + interval '3 hours', 3, 2, 10) RETURNING id`,
+      [org, conductor, vehiculo],
+    );
+    await e().bd.query(
+      `INSERT INTO reservas (id, organizacion_id, viaje_id, pasajero_id, monto, estado, clave_idempotencia)
+       VALUES ($1, $2, $3, $4, 10, 'confirmada', $5)`,
+      [reservaId, org, viaje, pasajero, `relleno-${reservaId}`],
+    );
+  };
   /** Asiento directo en BD; por omisión una recarga confirmada de hoy. */
   const asiento = async (
     billeteraId: string,
@@ -187,6 +259,7 @@ export function ayudasBilletera(e: () => Entorno) {
     } = {},
   ) => {
     const estado = o.estado ?? 'confirmado';
+    if (o.reservaId) await asegurarReserva(o.reservaId);
     const { rows } = await e().bd.query(
       `INSERT INTO movimientos_billetera (billetera_id, tipo, monto, estado, reserva_id, hash_tx, clave_idempotencia, creado_en)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,

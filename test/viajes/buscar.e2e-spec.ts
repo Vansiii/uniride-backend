@@ -45,6 +45,24 @@ describe('HU-18 · buscar viajes (e2e)', () => {
     origenLng = lngBase,
   ) => v.buscar(pasajero, { origenLat, origenLng, horaSalida });
 
+  describe('HU-19 RN-12 · los viajes propios no aparecen', () => {
+    it('el conductor no ve su propio viaje en la búsqueda; otro miembro sí', async () => {
+      const lat = nuevaLat();
+      const { id, conductor, fechaHoraSalida } = await publicarEn(lat);
+      const propia = await v
+        .buscar(conductor.token, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+        })
+        .expect(200);
+      expect(ids(propia)).toEqual([]);
+      expect(ids(await buscarEn(lat, fechaHoraSalida).expect(200))).toEqual([
+        id,
+      ]);
+    });
+  });
+
   describe('CA-1 · radio de 1 km y ventana de ± 30 minutos', () => {
     it('al pie del límite: a 999 m aparece y a 1001 m no', async () => {
       const lat = nuevaLat();

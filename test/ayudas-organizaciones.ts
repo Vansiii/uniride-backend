@@ -68,6 +68,17 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM registros_auditoria WHERE organizacion_id IN (${orgs}) OR actor_id IN (${usuarios})`,
     );
+    // HU-19: los movimientos apuntan a reservas y las reservas a viajes: se borra en ese orden.
+    const billeterasPrueba = `SELECT id FROM billeteras WHERE usuario_id IN (${usuarios})`;
+    await bd.query(
+      `DELETE FROM trabajos_onchain WHERE movimiento_id IN (SELECT id FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba}))`,
+    );
+    await bd.query(
+      `DELETE FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba})`,
+    );
+    await bd.query(
+      `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
+    );
     await bd.query(
       `DELETE FROM viajes WHERE organizacion_id IN (${orgs}) OR conductor_id IN (${usuarios})`,
     );

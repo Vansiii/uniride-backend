@@ -225,25 +225,27 @@ describe('A-13 · aislamiento de viajes (e2e)', () => {
       ).rejects.toThrow();
     });
 
-    it('el rol de la API no puede cambiar ni borrar un viaje: aún no hay transición que lo pida', async () => {
-      await expect(
-        prisma.enOrganizacion(a, (tx) =>
-          tx.viaje.update({
-            where: { id: viajeA },
-            data: { estado: 'pagado' },
-          }),
-        ),
-      ).rejects.toThrow();
+    it('el rol de la API solo cambia el estado y los cupos de un viaje (HU-19), nunca su precio ni su dueño, ni lo borra', async () => {
+      for (const data of [
+        { precioPorAsiento: 1 },
+        { conductorId: randomUUID() },
+        { origenNombre: 'otro' },
+      ])
+        await expect(
+          prisma.enOrganizacion(a, (tx) =>
+            tx.viaje.update({ where: { id: viajeA }, data }),
+          ),
+        ).rejects.toThrow();
       await expect(
         prisma.enOrganizacion(a, (tx) =>
           tx.viaje.delete({ where: { id: viajeA } }),
         ),
       ).rejects.toThrow();
       const { rows } = await e.bd.query(
-        `SELECT estado FROM viajes WHERE id = $1`,
+        `SELECT estado, precio_por_asiento::text AS precio FROM viajes WHERE id = $1`,
         [viajeA],
       );
-      expect(rows).toEqual([{ estado: 'publicado' }]);
+      expect(rows).toEqual([{ estado: 'publicado', precio: '10.50' }]);
     });
 
     it('la BD rechaza cupos y precios fuera de rango aunque la API falle', async () => {

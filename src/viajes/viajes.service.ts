@@ -8,6 +8,7 @@ import type {
   DetalleViajeDto,
   LimitesViajeDto,
   MiViajeDto,
+  PasajeroViajeDto,
   PublicarViajeDto,
   ViajeEncontradoDto,
   ViajePublicadoDto,
@@ -22,6 +23,8 @@ const ANTICIPACION_MAXIMA_DIAS = 7;
 const MARGEN_SOLAPE_MS = 2 * HORA_MS;
 /** CA-3. */
 const PRECIO_MINIMO_URC = 1;
+/** HU-19 RN-11 (D-25): con este paso el reparto 50/50 de HU-20 da centavos exactos. */
+const PASO_PRECIO_URC = new Prisma.Decimal('0.02');
 /** Mientras el viaje no terminó ni se canceló, ocupa al conductor (CA-5). */
 const ESTADOS_ACTIVOS = [
   EstadoViaje.publicado,
@@ -136,6 +139,13 @@ export class ViajesService {
           'viajes.publicar.precio_invalido',
           { minimo: PRECIO_MINIMO_URC, maximo: Number(precioMaximoUrc) },
         );
+      if (!precio.mod(PASO_PRECIO_URC).isZero())
+        throw new ErrorNegocio(
+          400,
+          'PRECIO_NO_MULTIPLO',
+          'viajes.publicar.precio_multiplo',
+          { paso: Number(PASO_PRECIO_URC) },
+        );
 
       // Dos publicaciones simultáneas del mismo conductor no pasan juntas la comprobación de solape.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conductorId}, 0))`;
@@ -230,10 +240,11 @@ export class ViajesService {
 
   /**
    * HU-18: viajes de la organización activa con salida a 1 km y ± 30 min del pedido, con cupos y aún sin salir.
-   * Solo proyección pública: nunca foto, documento ni correo (D-20).
+   * Solo proyección pública: nunca foto, documento ni correo (D-20). No incluye los viajes propios (HU-19 RN-12).
    */
   async buscar(
     organizacionId: string,
+    usuarioId: string,
     { origenLat: lat, origenLng: lng, horaSalida }: BuscarViajesDto,
   ): Promise<ViajeEncontradoDto[]> {
     if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180))
@@ -279,6 +290,7 @@ export class ViajesService {
           AND v.fecha_hora_salida BETWEEN ${desde}::timestamptz AND ${hasta}::timestamptz
           AND v.fecha_hora_salida > now()
           AND u.suspendida_en IS NULL
+          AND v.conductor_id <> ${usuarioId}::uuid
           AND d.km <= ${RADIO_BUSQUEDA_KM}
         ORDER BY v.fecha_hora_salida, d.km
         LIMIT ${MAXIMO_RESULTADOS}`,
@@ -305,6 +317,44 @@ export class ViajesService {
         modelo: f.modelo,
         color: f.color,
       },
+    }));
+  }
+
+  /** HU-19 CA-14: solo el conductor del viaje ve a sus pasajeros, con nombre de pila y estado (RN-9). */
+  async pasajeros(
+    conductorId: string,
+    organizacionId: string,
+    viajeId: string,
+  ): Promise<PasajeroViajeDto[]> {
+    const reservas = await this.prisma.enOrganizacion(
+      organizacionId,
+      async (tx) => {
+        const viaje = await tx.viaje.findFirst({
+          where: { id: viajeId, organizacionId, conductorId },
+          select: { id: true },
+        });
+        if (!viaje)
+          throw new ErrorNegocio(
+            404,
+            'VIAJE_NO_ENCONTRADO',
+            'viajes.detalle.no_encontrado',
+          );
+        // Una reserva que no se completó nunca tomó un asiento.
+        return tx.reserva.findMany({
+          where: { viajeId, estado: { not: 'fallida' } },
+          orderBy: { creadoEn: 'asc' },
+          select: {
+            id: true,
+            estado: true,
+            pasajero: { select: { nombreCompleto: true } },
+          },
+        });
+      },
+    );
+    return reservas.map((r) => ({
+      reservaId: r.id,
+      nombre: nombreDePila(r.pasajero.nombreCompleto),
+      estado: r.estado,
     }));
   }
 

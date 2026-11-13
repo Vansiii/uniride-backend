@@ -78,7 +78,7 @@ export class PublicarViajeDto {
   @ApiProperty({
     example: 10.5,
     description:
-      'En URC, con hasta 2 decimales. Desde 1 hasta el tope de la organización.',
+      'En URC, con hasta 2 decimales y en múltiplos de 0,02. Desde 1 hasta el tope de la organización.',
   })
   @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
   precioPorAsiento!: number;
@@ -239,4 +239,16 @@ export class DetalleViajeDto {
   precioPorAsiento!: number;
   @ApiProperty({ enum: EstadoViaje })
   estado!: EstadoViaje;
+}
+
+export class PasajeroViajeDto {
+  @ApiProperty({ format: 'uuid' })
+  reservaId!: string;
+  @ApiProperty({ description: 'Nombre de pila (RN-9 de HU-19).' })
+  nombre!: string;
+  @ApiProperty({
+    example: 'confirmada',
+    description: 'Estado de su reserva (RN-10 de HU-19).',
+  })
+  estado!: string;
 }
