@@ -73,6 +73,28 @@ export class CadenaControlable extends CadenaSimulada {
     return hash;
   }
 
+  liberaciones = 0;
+  /** El nodo libera pero la respuesta no llega; se apaga sola tras una vez (HU-24 CA-4). */
+  perderRespuestaDeLiberacion = false;
+
+  override async liberarReserva(
+    idReserva: string,
+    hashPrueba: string,
+  ): Promise<string> {
+    this.liberaciones++;
+    if (this.fallar)
+      throw Object.assign(
+        new Error('nodo caído en https://nodo.test/clave-rpc'),
+        { code: 'SERVER_ERROR' },
+      );
+    const hash = await super.liberarReserva(idReserva, hashPrueba);
+    if (this.perderRespuestaDeLiberacion) {
+      this.perderRespuestaDeLiberacion = false;
+      throw Object.assign(new Error('sin respuesta'), { code: 'TIMEOUT' });
+    }
+    return hash;
+  }
+
   override async estadoReservaEscrow(
     idReserva: string,
   ): Promise<ReservaEscrow> {

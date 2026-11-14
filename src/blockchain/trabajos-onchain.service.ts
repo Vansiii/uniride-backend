@@ -358,7 +358,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
           select: { estado: true, viajeId: true, organizacionId: true },
         }),
       );
-      const cerrar = (accion: string, detalle: object) =>
+      const cerrar = (accion: string, detalle: Record<string, unknown>) =>
         this.cerrarSinPago(trabajo, movimiento, reserva.organizacionId, {
           accion,
           detalle,
@@ -438,7 +438,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     trabajo: Trabajo,
     movimiento: MovimientoDeTrabajo,
     organizacionId: string,
-    alerta: { accion: string; detalle: object },
+    alerta: { accion: string; detalle: Record<string, unknown> },
   ): Promise<true> {
     await this.prisma.comoSuperAdmin(async (tx) => {
       await this.movimientos.actualizarEstado(
