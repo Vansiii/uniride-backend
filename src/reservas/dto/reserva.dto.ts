@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsUUID } from 'class-validator';
 import { EstadoViaje } from '../../generated/prisma/client.js';
+import {
+  ESTADOS_MOVIMIENTO,
+  type EstadoMovimiento,
+} from '../../billetera/dto/saldo.dto.js';
 
 /** RN-10 (D-23). HU-20 agrega `cancelada` y `expirada`. */
 export const ESTADOS_RESERVA = [
@@ -67,6 +71,22 @@ export class ReservaDto {
   viaje!: ViajeDeReservaDto;
 }
 
+/** HU-24 CA-1: el pago al conductor de esta reserva. */
+export class PagoReservaDto {
+  @ApiProperty({
+    enum: ESTADOS_MOVIMIENTO,
+    description:
+      '`pendiente` mientras la red registra la liberación; `confirmado` con su hash.',
+  })
+  estado!: EstadoMovimiento;
+  @ApiProperty({ example: '10.50', description: 'URC con 2 decimales.' })
+  monto!: string;
+  @ApiProperty({ type: String, nullable: true })
+  hashTx!: string | null;
+  @ApiProperty({ type: String, nullable: true })
+  exploradorUrl!: string | null;
+}
+
 export class ReservaDetalleDto extends ReservaDto {
   @ApiProperty({
     type: String,
@@ -77,6 +97,13 @@ export class ReservaDetalleDto extends ReservaDto {
   hashTx!: string | null;
   @ApiProperty({ type: String, nullable: true })
   exploradorUrl!: string | null;
+  @ApiProperty({
+    type: PagoReservaDto,
+    nullable: true,
+    description:
+      'Liberación al conductor (HU-24), para el pasajero y el conductor; `null` hasta que la reserva quede verificada.',
+  })
+  pago!: PagoReservaDto | null;
 }
 
 export class MisReservasDto {

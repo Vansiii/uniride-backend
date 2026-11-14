@@ -106,6 +106,8 @@ describe('crearCadena', () => {
     ['sin llave', {}],
     ['con RELAYER_LLAVE_PRIVADA', { RELAYER_LLAVE_PRIVADA: LLAVE }],
     ['con KMS_LLAVE_RELAYER_ID', { KMS_LLAVE_RELAYER_ID: 'alias/relayer' }],
+    // HU-24 CA-9 / A-12: la llave del verificador tampoco se acepta en producción.
+    ['con VERIFICADOR_LLAVE_PRIVADA', { VERIFICADOR_LLAVE_PRIVADA: LLAVE }],
   ])('en producción no arranca sin el firmante KMS: %s', (_, extra) => {
     expect(() =>
       crearCadena({ ...valido, ...extra, NODE_ENV: 'production' }),
@@ -173,8 +175,37 @@ describe('CadenaSimulada · bloquear reserva', () => {
       pagador: pasajero.address,
       conductor,
       monto: 10n * URC,
+      hashPrueba: `0x${'00'.repeat(32)}`,
     });
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(10n * URC);
     expect(await cadena.hashDeBloqueo(ID_RESERVA)).toBe(hash);
+  });
+
+  it('HU-24: liberar paga al conductor desde el escrow, guarda el hash de la prueba y solo una vez', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    const prueba = `0x${'cd'.repeat(32)}`;
+    const hash = await cadena.liberarReserva(ID_RESERVA, prueba);
+    expect(await cadena.leerSaldo(conductor)).toBe(10n * URC);
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(0n);
+    expect(await cadena.estadoReservaEscrow(ID_RESERVA)).toMatchObject({
+      estado: 'liberada',
+      hashPrueba: prueba,
+    });
+    expect(await cadena.hashDeLiberacion(ID_RESERVA)).toBe(hash);
+    // Como el contrato: una segunda vez revierte con ReservaNoBloqueada y no paga.
+    await expect(cadena.liberarReserva(ID_RESERVA, prueba)).rejects.toThrow(
+      'ReservaNoBloqueada',
+    );
+    expect(await cadena.leerSaldo(conductor)).toBe(10n * URC);
+  });
+
+  it('HU-24: una reserva nunca bloqueada no se libera ni tiene hash de liberación', async () => {
+    const cadena = new CadenaSimulada();
+    await expect(
+      cadena.liberarReserva(ID_RESERVA, `0x${'cd'.repeat(32)}`),
+    ).rejects.toThrow('ReservaNoBloqueada');
+    await expect(cadena.hashDeLiberacion(ID_RESERVA)).rejects.toThrow();
   });
 
   it('repetir la misma reserva devuelve el mismo hash sin bloquear de nuevo', async () => {
@@ -518,6 +549,7 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
         pagador: DIRECCION,
         conductor: TOKEN,
         monto: 10n * URC,
+        hashPrueba: `0x${'00'.repeat(32)}`,
       });
       expect(nodo.llamadas[0].a?.toLowerCase()).toBe(ESCROW.toLowerCase());
     });

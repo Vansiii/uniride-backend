@@ -7,6 +7,7 @@ import {
 } from '../blockchain/blockchain.service.js';
 import { BilleteraService } from '../billetera/billetera.service.js';
 import { MovimientosService } from '../billetera/movimientos.service.js';
+import type { EstadoMovimiento } from '../billetera/dto/saldo.dto.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
@@ -281,21 +282,34 @@ export class ReservasService {
       }),
     );
     if (!reserva) throw noEncontrada();
+    const movimientos = await this.prisma.movimientoBilletera.findMany({
+      where: {
+        reservaId,
+        tipo: { in: ['bloqueo_reserva', 'liberacion_viaje'] },
+      },
+      select: { tipo: true, estado: true, monto: true, hashTx: true },
+    });
+    const explorador = (hash: string | null) =>
+      hash ? this.blockchain.cadena.exploradorTxUrl(hash) : null;
     // La transacción del bloqueo es del libro del pasajero: el conductor no la necesita.
     const hashTx =
       reserva.pasajeroId === usuarioId
-        ? ((
-            await this.prisma.movimientoBilletera.findFirst({
-              where: { reservaId, tipo: 'bloqueo_reserva' },
-              select: { hashTx: true },
-            })
-          )?.hashTx ?? null)
+        ? (movimientos.find((m) => m.tipo === 'bloqueo_reserva')?.hashTx ??
+          null)
         : null;
+    // HU-24 CA-1: el pago al conductor, para los dos; es una transacción pública de la red.
+    const liberacion = movimientos.find((m) => m.tipo === 'liberacion_viaje');
     return {
       ...aDto(reserva),
       hashTx,
-      exploradorUrl: hashTx
-        ? this.blockchain.cadena.exploradorTxUrl(hashTx)
+      exploradorUrl: explorador(hashTx),
+      pago: liberacion
+        ? {
+            estado: liberacion.estado as EstadoMovimiento,
+            monto: liberacion.monto.toFixed(2),
+            hashTx: liberacion.hashTx,
+            exploradorUrl: explorador(liberacion.hashTx),
+          }
         : null,
     };
   }
