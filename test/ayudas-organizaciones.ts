@@ -76,6 +76,15 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba})`,
     );
+    // HU-22: la presencia apunta a reservas, viajes y dispositivos; todo es de una organización de prueba.
+    for (const tabla of [
+      'pruebas_presencia',
+      'desafios_handshake',
+      'llaves_trayecto',
+    ])
+      await bd.query(
+        `DELETE FROM ${tabla} WHERE organizacion_id IN (${orgs})`,
+      );
     await bd.query(
       `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
     );

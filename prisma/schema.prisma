@@ -37,6 +37,7 @@ model Usuario {
   ordenesRecarga OrdenRecarga[]
   viajes         Viaje[]
   reservas       Reserva[]
+  llavesTrayecto LlaveTrayecto[]
 
   @@map("usuarios")
 }
@@ -90,6 +91,9 @@ model Organizacion {
   dominios     DominioOrganizacion[]
   viajes       Viaje[]
   reservas     Reserva[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
+  pruebas        PruebaPresencia[]
 
   @@map("organizaciones")
 }
@@ -225,6 +229,8 @@ model Viaje {
   conductor    Usuario      @relation(fields: [conductorId], references: [id])
   vehiculo     Vehiculo     @relation(fields: [vehiculoId], references: [id])
   reservas     Reserva[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
 
   @@index([organizacionId, estado, fechaHoraSalida, cuposDisponibles], map: "idx_viajes_busqueda")
   @@index([conductorId, fechaHoraSalida])
@@ -273,6 +279,7 @@ model Dispositivo {
   ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
 
   usuario Usuario @relation(fields: [usuarioId], references: [id])
+  llavesTrayecto LlaveTrayecto[]
 
   @@index([usuarioId])
   @@map("dispositivos")
@@ -394,8 +401,82 @@ model Reserva {
   viaje        Viaje                 @relation(fields: [viajeId], references: [id])
   pasajero     Usuario               @relation(fields: [pasajeroId], references: [id])
   movimientos  MovimientoBilletera[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
+  pruebas        PruebaPresencia[]
 
   @@index([viajeId, estado])
   @@index([pasajeroId, creadoEn(sort: Desc)])
   @@map("reservas")
+}
+
+// --- HU-22: verificación de abordaje (organizacion_id + RLS, A-13) ---
+
+/// D-22: llave sin biometría que firma los desafíos del conductor (`reservaId` nulo) o del pasajero. Una vigente por persona y viaje.
+model LlaveTrayecto {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String    @map("organizacion_id") @db.Uuid
+  viajeId        String    @map("viaje_id") @db.Uuid
+  reservaId      String?   @map("reserva_id") @db.Uuid
+  usuarioId      String    @map("usuario_id") @db.Uuid
+  dispositivoId  String    @map("dispositivo_id") @db.Uuid
+  llavePublica   String    @map("llave_publica")
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  revocadaEn     DateTime? @map("revocada_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje        @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  reserva      Reserva?     @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  dispositivo  Dispositivo  @relation(fields: [dispositivoId], references: [id], onDelete: Restrict)
+
+  @@map("llaves_trayecto")
+}
+
+/// RN-1: código de un solo uso y 30 s de vida, del viaje. Solo cambian `usadoEn` y `reservaId` (GRANT en la migración).
+model DesafioHandshake {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String    @map("organizacion_id") @db.Uuid
+  viajeId             String    @map("viaje_id") @db.Uuid
+  tipo                String
+  nonce               String    @unique
+  conductorLat        Float     @map("conductor_lat")
+  conductorLng        Float     @map("conductor_lng")
+  conductorPrecisionM Float     @map("conductor_precision_m")
+  conductorTomadaEn   DateTime  @map("conductor_tomada_en") @db.Timestamptz(3)
+  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  venceEn             DateTime  @map("vence_en") @db.Timestamptz(3)
+  usadoEn             DateTime? @map("usado_en") @db.Timestamptz(3)
+  reservaId           String?   @map("reserva_id") @db.Uuid
+
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje             @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  reserva      Reserva?          @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  pruebas      PruebaPresencia[]
+
+  @@map("desafios_handshake")
+}
+
+/// CA-13: cada intento con reserva propia. `hashPrueba` (SHA-256) lo usa HU-24. Solo inserción.
+model PruebaPresencia {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String   @map("organizacion_id") @db.Uuid
+  reservaId           String   @map("reserva_id") @db.Uuid
+  desafioId           String?  @map("desafio_id") @db.Uuid
+  tipo                String
+  pasajeroLat         Float?   @map("pasajero_lat")
+  pasajeroLng         Float?   @map("pasajero_lng")
+  pasajeroPrecisionM  Float?   @map("pasajero_precision_m")
+  distanciaM          Float?   @map("distancia_m")
+  veredictoIntegridad String?  @map("veredicto_integridad")
+  resultado           String
+  motivo              String?
+  hashPrueba          String?  @map("hash_prueba")
+  creadoEn            DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  reserva      Reserva           @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  desafio      DesafioHandshake? @relation(fields: [desafioId], references: [id], onDelete: Restrict)
+
+  @@map("pruebas_presencia")
 }
