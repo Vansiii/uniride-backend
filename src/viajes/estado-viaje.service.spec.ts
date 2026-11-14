@@ -56,4 +56,17 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
     expect(enCurso).toContain("IN ('abordada', 'verificada', 'pagada')");
     expect(enCurso).not.toContain("'confirmada'");
   });
+
+  it('HU-23 RN-10: en_curso → verificado cuando nadie queda sin bajar ni con la verificación fallida', async () => {
+    const c = crear(0);
+    await servicio.recalcular(c.transaccion, 'v1');
+    const verificado = sql(c, 2);
+    expect(verificado).toContain("SET estado = 'verificado'");
+    expect(verificado).toContain("estado = 'en_curso'");
+    expect(verificado).toContain("IN ('verificada', 'pagada')");
+    expect(verificado).toMatch(
+      /NOT EXISTS .*IN \('pendiente', 'confirmada', 'abordada', 'verificacion_fallida'\)/,
+    );
+    expect(c.tx.$executeRaw).toHaveBeenCalledTimes(3);
+  });
 });

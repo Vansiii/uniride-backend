@@ -10,7 +10,9 @@ import type { Transaccion } from '../comun/prisma.service.js';
 export class EstadoViajeService {
   /**
    * `publicado → reservado` con la primera reserva confirmada (HU-19 CA-13) y `reservado → en_curso` con el primer
-   * abordaje verificado (HU-22 RN-7). En orden, así un viaje no salta `reservado`. Devuelve si el viaje cambió.
+   * abordaje verificado (HU-22 RN-7) y `en_curso → verificado` (HU-23 RN-10, D-23) cuando ninguna reserva queda sin
+   * bajar ni con la verificación fallida y alguna se verificó. En orden, así un viaje no salta estados. Devuelve si el
+   * viaje cambió.
    */
   async recalcular(tx: Transaccion, viajeId: string): Promise<boolean> {
     const reservado = await tx.$executeRaw`
@@ -29,7 +31,20 @@ export class EstadoViajeService {
           WHERE r.viaje_id = viajes.id
             AND r.estado IN ('abordada', 'verificada', 'pagada')
         )`;
-    return reservado + enCurso > 0;
+    // Una `verificacion_fallida` deja el viaje en curso (la resuelve D-24) sin frenar el pago de las demás reservas.
+    const verificado = await tx.$executeRaw`
+      UPDATE viajes SET estado = 'verificado'
+      WHERE id = ${viajeId}::uuid AND estado = 'en_curso'
+        AND EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id AND r.estado IN ('verificada', 'pagada')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id
+            AND r.estado IN ('pendiente', 'confirmada', 'abordada', 'verificacion_fallida')
+        )`;
+    return reservado + enCurso + verificado > 0;
   }
 }
 
