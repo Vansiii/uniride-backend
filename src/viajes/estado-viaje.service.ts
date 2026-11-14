@@ -15,6 +15,10 @@ export class EstadoViajeService {
    * viaje cambió.
    */
   async recalcular(tx: Transaccion, viajeId: string): Promise<boolean> {
+    // Una transacción a la vez por viaje: dos bajadas que terminan juntas, con READ COMMITTED, verían cada una la
+    // reserva de la otra todavía `abordada` y ninguna lo pasaría a `verificado`. La segunda espera aquí y sus consultas
+    // siguientes ya ven lo que la primera confirmó.
+    await tx.$queryRaw`SELECT 1 FROM viajes WHERE id = ${viajeId}::uuid FOR UPDATE`;
     const reservado = await tx.$executeRaw`
       UPDATE viajes SET estado = 'reservado'
       WHERE id = ${viajeId}::uuid AND estado = 'publicado'

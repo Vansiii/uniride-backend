@@ -2,7 +2,10 @@ import type { Transaccion } from '../comun/prisma.service.js';
 import { EstadoViajeService } from './estado-viaje.service.js';
 
 function crear(filas: number) {
-  const tx = { $executeRaw: vi.fn().mockResolvedValue(filas) };
+  const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(filas),
+    $queryRaw: vi.fn().mockResolvedValue([]),
+  };
   return { tx, transaccion: tx as unknown as Transaccion };
 }
 const sql = (c: ReturnType<typeof crear>, llamada = 0) =>
@@ -68,5 +71,14 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
       /NOT EXISTS .*IN \('pendiente', 'confirmada', 'abordada', 'verificacion_fallida'\)/,
     );
     expect(c.tx.$executeRaw).toHaveBeenCalledTimes(3);
+  });
+
+  it('HU-23 RN-10: bloquea la fila del viaje antes de mirar sus reservas (dos bajadas a la vez)', async () => {
+    const c = crear(0);
+    await servicio.recalcular(c.transaccion, 'v1');
+    expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
+      'FOR UPDATE',
+    );
+    expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
   });
 });

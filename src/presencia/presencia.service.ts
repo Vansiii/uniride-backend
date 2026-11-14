@@ -147,6 +147,7 @@ export class PresenciaService {
         where: { id: viajeId, organizacionId, conductorId: usuarioId },
         select: {
           fechaHoraSalida: true,
+          estado: true,
           reservas: {
             where: {
               estado: { in: ['confirmada', ...ENCUENTRO.abordaje.hecho] },
@@ -163,7 +164,9 @@ export class PresenciaService {
         'VIAJE_NO_ENCONTRADO',
         'viajes.detalle.no_encontrado',
       );
-    exigirVentana(viaje.fechaHoraSalida);
+    // HU-23 RN-7: con el viaje en curso la llave también firma el código de bajada, que no tiene ventana horaria; sin
+    // esto, un conductor sin llave (app reinstalada) no podría bajar a nadie pasada la ventana de abordaje.
+    if (viaje.estado !== 'en_curso') exigirVentana(viaje.fechaHoraSalida);
     if (viaje.reservas.length === 0)
       throw error(409, 'SIN_RESERVAS', 'sin_reservas');
 

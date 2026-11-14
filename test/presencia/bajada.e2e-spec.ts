@@ -159,6 +159,18 @@ describe('HU-23 · bajada y verificación del viaje (e2e)', () => {
     // Dos horas después de la salida: el abordaje estaría fuera de ventana, la bajada no.
     await h.moverSalida(v.s.viajeId, -2 * 60 * 60_000);
     await h.codigoBajada(v.s, v.conductor);
+    // Sin la llave en el teléfono (app reinstalada), el conductor registra otra y con ella da el código de bajada.
+    const nueva = await h.llaveConductor(v.s);
+    await h.codigoBajada(v.s, nueva);
+  });
+
+  it('CA-3: con el viaje sin empezar, la llave del conductor sigue atada a la ventana de abordaje', async () => {
+    const s = await h.escenario(org);
+    await h.moverSalida(s.viajeId, -2 * 60 * 60_000);
+    const { body } = await h
+      .registrarLlave(s.conductor, s.viajeId)
+      .peticion.expect(409);
+    expect(body.codigo).toBe('FUERA_DE_VENTANA');
   });
 
   it('CA-10, CA-11: con menos de 4 pares queda verificación fallida, con alerta y el pago en garantía', async () => {
@@ -209,6 +221,33 @@ describe('HU-23 · bajada y verificación del viaje (e2e)', () => {
       .bajar(p2, p2.reservaId, await h.codigoBajada(v.s, v.conductor))
       .expect(200);
     expect(body.estado).toBe('verificada');
+    expect(await h.estadoViaje(v.s.viajeId)).toBe('verificado');
+  });
+
+  it('RN-10: las dos últimas bajadas a la vez dejan el viaje verificado', async () => {
+    const v = await h.enViaje(org, 2);
+    const [p1, p2] = v.s.pasajeros;
+    await recorrer(v, 0);
+    await h
+      .posiciones(
+        p2.token,
+        h.rutaPasajero(p2.reservaId),
+        v.pasajeros[1],
+        traza(20, { desplazamientoM: 30 }),
+      )
+      .expect(202);
+    const [c1, c2] = [
+      await h.codigoBajada(v.s, v.conductor),
+      await h.codigoBajada(v.s, v.conductor),
+    ];
+    const respuestas = await Promise.all([
+      h.bajar(p1, p1.reservaId, c1),
+      h.bajar(p2, p2.reservaId, c2),
+    ]);
+    expect(respuestas.map((r) => r.body.estado)).toEqual([
+      'verificada',
+      'verificada',
+    ]);
     expect(await h.estadoViaje(v.s.viajeId)).toBe('verificado');
   });
 
