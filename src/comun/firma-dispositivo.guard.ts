@@ -47,7 +47,7 @@ const ES_NONCE = /^[A-Za-z0-9+/_=-]{16,128}$/;
 const ES_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
- * Nonces vistos por dispositivo. Un solo proceso: ver nota `ponytail:` abajo.
+ * Nonces vistos por llave (dispositivo o `trayecto:<id>`). Un solo proceso: ver nota `ponytail:` abajo.
  * Es un singleton por `FirmaDispositivoModule`; los módulos que usan el guard deben importar ese módulo.
  */
 @Injectable()
@@ -58,12 +58,12 @@ export class RegistroNonces {
   private readonly vistos = new Map<string, number>();
 
   /** Atómico (sin `await` entre la consulta y el registro): `false` si el nonce ya se usó. */
-  registrar(dispositivoId: string, nonce: string, ahora = Date.now()): boolean {
+  registrar(dueno: string, nonce: string, ahora = Date.now()): boolean {
     for (const [clave, vence] of this.vistos) {
       if (vence > ahora) break;
       this.vistos.delete(clave);
     }
-    const clave = `${dispositivoId}:${nonce}`;
+    const clave = `${dueno}:${nonce}`;
     if (this.vistos.has(clave)) return false;
     this.vistos.set(clave, ahora + VIDA_NONCE_MS);
     return true;
@@ -86,10 +86,98 @@ export function mensajeCanonico(
   return `${metodo.toUpperCase()}\n${ruta}\n${marca}\n${nonce}\n${hash}`;
 }
 
-type PeticionFirmada = Request & {
+export type PeticionFirmada = Request & {
   usuario?: UsuarioToken;
   rawBody?: Buffer;
+  /** Lo deja `FirmaDispositivoGuard`: el dispositivo activo que firmó. */
+  dispositivoId?: string;
 };
+
+export type Rechazo = { error: ErrorNegocio; motivo: string };
+
+export interface CabecerasFirma {
+  /** `X-Dispositivo-Id` o `X-Llave-Trayecto-Id`: qué llave firmó. */
+  id: string;
+  marca: string;
+  nonce: string;
+  firma: string;
+  cuerpo: Buffer;
+}
+
+/** Lee y valida la forma de las cabeceras de firma; `cabeceraId` dice qué llave firmó. */
+export function leerCabecerasFirma(
+  peticion: PeticionFirmada,
+  cabeceraId: string,
+  invalida: () => ErrorNegocio,
+): CabecerasFirma | Rechazo {
+  const cabecera = (nombre: string) => {
+    const valor = peticion.headers[nombre];
+    return typeof valor === 'string' ? valor : '';
+  };
+  const id = cabecera(cabeceraId);
+  const marca = cabecera('x-timestamp');
+  const nonce = cabecera('x-nonce');
+  const firma = cabecera('x-firma');
+  if (
+    !ES_UUID.test(id) ||
+    !ES_MARCA.test(marca) ||
+    !ES_NONCE.test(nonce) ||
+    !ES_BASE64.test(firma)
+  )
+    return { error: invalida(), motivo: 'cabeceras' };
+  // Un cuerpo que Express no entregó crudo (p. ej. multipart) no se puede firmar: se rechaza en vez de firmar "vacío".
+  if (!peticion.rawBody && Number(peticion.headers['content-length']) > 0)
+    return { error: invalida(), motivo: 'cuerpo_no_firmable' };
+  return {
+    id,
+    marca,
+    nonce,
+    firma,
+    cuerpo: peticion.rawBody ?? Buffer.alloc(0),
+  };
+}
+
+/**
+ * Ventana, mensaje canónico, firma y nonce de una petición firmada con `llavePem` (RN-4 de HU-09). La comparten
+ * `FirmaDispositivoGuard` y `FirmaTrayectoGuard` (HU-22). `null` si todo cuadra.
+ */
+export function verificarFirmaPeticion(
+  peticion: PeticionFirmada,
+  c: CabecerasFirma,
+  llavePem: string,
+  claveNonces: string,
+  nonces: RegistroNonces,
+  invalida: () => ErrorNegocio,
+): Rechazo | null {
+  const ahora = Date.now();
+  if (Math.abs(ahora - Number(c.marca)) > VENTANA_MS)
+    return { error: peticionExpirada(), motivo: 'ventana' };
+
+  const mensaje = mensajeCanonico(
+    peticion.method,
+    peticion.originalUrl,
+    c.marca,
+    c.nonce,
+    c.cuerpo,
+  );
+  let valida = false;
+  try {
+    valida = verificarFirma(
+      'sha256',
+      Buffer.from(mensaje),
+      createPublicKey(llavePem),
+      Buffer.from(c.firma, 'base64'),
+    );
+  } catch {
+    valida = false;
+  }
+  if (!valida) return { error: invalida(), motivo: 'firma' };
+
+  // El nonce se registra solo con la firma ya válida: quien no tiene la llave no puede "quemar" nonces ajenos.
+  if (!nonces.registrar(claveNonces, c.nonce, ahora))
+    return { error: peticionExpirada(), motivo: 'nonce_repetido' };
+  return null;
+}
 
 /**
  * Exige que la petición venga firmada por el dispositivo ACTIVO de la cuenta autenticada (A-04, A-05, A-08).
@@ -134,68 +222,32 @@ export class FirmaDispositivoGuard implements CanActivate {
   private async comprobar(
     peticion: PeticionFirmada,
     usuarioId: string,
-  ): Promise<{ error: ErrorNegocio; motivo: string } | null> {
-    const rechazo = (motivo: string, error = firmaInvalida()) => ({
-      error,
-      motivo,
-    });
-    const cabecera = (nombre: string) => {
-      const valor = peticion.headers[nombre];
-      return typeof valor === 'string' ? valor : '';
-    };
-    const dispositivoId = cabecera('x-dispositivo-id');
-    const marca = cabecera('x-timestamp');
-    const nonce = cabecera('x-nonce');
-    const firma = cabecera('x-firma');
-    if (
-      !ES_UUID.test(dispositivoId) ||
-      !ES_MARCA.test(marca) ||
-      !ES_NONCE.test(nonce) ||
-      !ES_BASE64.test(firma)
-    )
-      return rechazo('cabeceras');
-
-    // Un cuerpo que Express no entregó crudo (p. ej. multipart) no se puede firmar: se rechaza en vez de firmar "vacío".
-    const cuerpo = peticion.rawBody ?? Buffer.alloc(0);
-    if (!peticion.rawBody && Number(peticion.headers['content-length']) > 0)
-      return rechazo('cuerpo_no_firmable');
+  ): Promise<Rechazo | null> {
+    const cabeceras = leerCabecerasFirma(
+      peticion,
+      'x-dispositivo-id',
+      firmaInvalida,
+    );
+    if ('motivo' in cabeceras) return cabeceras;
 
     const dispositivo = await this.prisma.dispositivo.findFirst({
       where: { usuarioId, activo: true },
       select: { id: true, llavePublica: true },
     });
     // Debe ser el dispositivo activo DE ESTA CUENTA; el de otra persona o uno inactivo no existe para este usuario.
-    if (!dispositivo || dispositivo.id !== dispositivoId.toLowerCase())
-      return rechazo('dispositivo');
+    if (!dispositivo || dispositivo.id !== cabeceras.id.toLowerCase())
+      return { error: firmaInvalida(), motivo: 'dispositivo' };
 
-    const ahora = Date.now();
-    if (Math.abs(ahora - Number(marca)) > VENTANA_MS)
-      return rechazo('ventana', peticionExpirada());
-
-    const mensaje = mensajeCanonico(
-      peticion.method,
-      peticion.originalUrl,
-      marca,
-      nonce,
-      cuerpo,
+    const fallo = verificarFirmaPeticion(
+      peticion,
+      cabeceras,
+      dispositivo.llavePublica,
+      dispositivo.id,
+      this.nonces,
+      firmaInvalida,
     );
-    let valida = false;
-    try {
-      valida = verificarFirma(
-        'sha256',
-        Buffer.from(mensaje),
-        createPublicKey(dispositivo.llavePublica),
-        Buffer.from(firma, 'base64'),
-      );
-    } catch {
-      valida = false;
-    }
-    if (!valida) return rechazo('firma');
-
-    // El nonce se registra solo con la firma ya válida: quien no tiene la llave no puede "quemar" nonces ajenos.
-    if (!this.nonces.registrar(dispositivo.id, nonce, ahora))
-      return rechazo('nonce_repetido', peticionExpirada());
-
+    if (fallo) return fallo;
+    peticion.dispositivoId = dispositivo.id;
     this.marcarUso(dispositivo.id);
     return null;
   }

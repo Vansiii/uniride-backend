@@ -24,3 +24,9 @@ export const OrganizacionActual = createParamDecorator(
   (_: unknown, contexto: ExecutionContext): string =>
     contexto.switchToHttp().getRequest().organizacionId,
 );
+
+/** El dispositivo activo que firmó, ya verificado por `FirmaDispositivoGuard`. */
+export const DispositivoActual = createParamDecorator(
+  (_: unknown, contexto: ExecutionContext): string =>
+    contexto.switchToHttp().getRequest().dispositivoId,
+);

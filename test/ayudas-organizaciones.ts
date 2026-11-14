@@ -82,9 +82,7 @@ export async function prepararEntorno(
       'desafios_handshake',
       'llaves_trayecto',
     ])
-      await bd.query(
-        `DELETE FROM ${tabla} WHERE organizacion_id IN (${orgs})`,
-      );
+      await bd.query(`DELETE FROM ${tabla} WHERE organizacion_id IN (${orgs})`);
     await bd.query(
       `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
     );
