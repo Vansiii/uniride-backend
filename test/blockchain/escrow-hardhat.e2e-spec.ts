@@ -284,5 +284,30 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
       expect(await conRelayer.verificadorTieneRol()).toBe(false);
       expect(await cadena.verificadorTieneRol()).toBe(true);
     });
+
+    it('§4: la cuenta verificadora con el rol pero sin gas rechaza sin pagar ni resolver la reserva (el worker reintenta)', async () => {
+      const { c, idReserva } = await bloqueada();
+      const sinGas = Wallet.createRandom();
+      await (await escrow.grantRole(ROL_VERIFICADOR, sinGas.address)).wait();
+      const pobre = new CadenaReal(
+        RPC as string,
+        await token.getAddress(),
+        31337,
+        undefined,
+        LLAVE_RELAYER,
+        await escrow.getAddress(),
+        sinGas.privateKey,
+      );
+      const falla = pobre.liberarReserva(idReserva, HASH_PRUEBA);
+      await expect(falla).rejects.toThrow();
+      await expect(falla).rejects.not.toBeInstanceOf(ErrorBloqueoPermanente);
+      expect(await cadena.leerSaldo(c)).toBe(0n);
+      expect((await cadena.estadoReservaEscrow(idReserva)).estado).toBe(
+        'bloqueada',
+      );
+      // Con gas, el reintento paga.
+      await cadena.liberarReserva(idReserva, HASH_PRUEBA);
+      expect(await cadena.leerSaldo(c)).toBe(10n * URC + URC / 2n);
+    });
   });
 });

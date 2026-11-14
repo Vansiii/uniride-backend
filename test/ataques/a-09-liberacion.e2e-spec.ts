@@ -48,30 +48,41 @@ describe('A-09 · liberar sin viaje verificado o pagar dos veces (e2e)', () => {
     expect(rutas.filter((x) => /liber|pag(o|ar)/i.test(x))).toEqual([]);
   });
 
-  it('CA-3: confirmada, abordada o con la verificación fallida no encolan pago; forzado, el worker lo rechaza', async () => {
+  // Sin estado de cancelación hasta HU-20: `pendiente` y `fallida` (bloqueo rechazado) son las reservas que nunca viajaron.
+  it('CA-3: pendiente, confirmada, abordada, fallida o con la verificación fallida no encolan pago; forzado, el worker lo rechaza', async () => {
     const v = await h.enViaje(org, 3);
     const [abordada, fallida, confirmada] = v.s.pasajeros;
+    // Otro viaje: el del escenario no tiene cinco cupos.
+    const otro = await h.enViaje(org, 2);
+    const [pendiente, bloqueoFallido] = otro.s.pasajeros;
     // Con 3 puntos no alcanza la traza: verificación fallida (HU-23).
     await h.recorrer(v, 1, traza(3, { desplazamientoM: 20 }), traza(3));
     await h
       .bajar(fallida, fallida.reservaId, await h.codigoBajada(v.s, v.conductor))
       .expect(200);
-    await e.bd.query(
-      `UPDATE reservas SET estado = 'confirmada' WHERE id = $1`,
-      [confirmada.reservaId],
-    );
+    for (const [p, estado] of [
+      [confirmada, 'confirmada'],
+      [pendiente, 'pendiente'],
+      [bloqueoFallido, 'fallida'],
+    ] as const)
+      await e.bd.query(`UPDATE reservas SET estado = $2 WHERE id = $1`, [
+        p.reservaId,
+        estado,
+      ]);
     expect(await h.estadoReserva(fallida.reservaId)).toBe(
       'verificacion_fallida',
     );
 
-    for (const p of [abordada, fallida, confirmada])
-      expect(await liberaciones(p.reservaId)).toEqual([]);
+    const todas = [abordada, fallida, confirmada, pendiente, bloqueoFallido];
+    for (const p of todas) expect(await liberaciones(p.reservaId)).toEqual([]);
 
     for (const p of [abordada, fallida, confirmada])
       await forzarLiberacion(p.reservaId, v.s.conductor.billetera);
+    for (const p of [pendiente, bloqueoFallido])
+      await forzarLiberacion(p.reservaId, otro.s.conductor.billetera);
     await r.procesar();
 
-    for (const p of [abordada, fallida, confirmada]) {
+    for (const p of todas) {
       expect(await liberaciones(p.reservaId)).toMatchObject([
         { estado: 'fallido', hash_tx: null, trabajo: 'terminado' },
       ]);
@@ -81,6 +92,7 @@ describe('A-09 · liberar sin viaje verificado o pagar dos veces (e2e)', () => {
     }
     expect(r.cadena().liberaciones).toBe(0);
     expect(await cobrado(v.s.conductor.direccion)).toBe(0n);
+    expect(await cobrado(otro.s.conductor.direccion)).toBe(0n);
   });
 
   it('CA-4: respuesta perdida: el reintento recupera el hash y el conductor cobra una vez', async () => {
