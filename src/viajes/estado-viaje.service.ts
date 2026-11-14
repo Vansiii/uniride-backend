@@ -8,9 +8,12 @@ import type { Transaccion } from '../comun/prisma.service.js';
  */
 @Injectable()
 export class EstadoViajeService {
-  /** `publicado → reservado` con la primera reserva confirmada (CA-13). Devuelve si el viaje cambió. */
+  /**
+   * `publicado → reservado` con la primera reserva confirmada (HU-19 CA-13) y `reservado → en_curso` con el primer
+   * abordaje verificado (HU-22 RN-7). En orden, así un viaje no salta `reservado`. Devuelve si el viaje cambió.
+   */
   async recalcular(tx: Transaccion, viajeId: string): Promise<boolean> {
-    const cambiadas = await tx.$executeRaw`
+    const reservado = await tx.$executeRaw`
       UPDATE viajes SET estado = 'reservado'
       WHERE id = ${viajeId}::uuid AND estado = 'publicado'
         AND EXISTS (
@@ -18,7 +21,15 @@ export class EstadoViajeService {
           WHERE r.viaje_id = viajes.id
             AND r.estado IN ('confirmada', 'abordada', 'verificada', 'pagada')
         )`;
-    return cambiadas > 0;
+    const enCurso = await tx.$executeRaw`
+      UPDATE viajes SET estado = 'en_curso'
+      WHERE id = ${viajeId}::uuid AND estado = 'reservado'
+        AND EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id
+            AND r.estado IN ('abordada', 'verificada', 'pagada')
+        )`;
+    return reservado + enCurso > 0;
   }
 }
 

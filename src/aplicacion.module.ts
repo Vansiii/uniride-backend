@@ -7,6 +7,7 @@ import { DispositivosModule } from './dispositivos/dispositivos.module.js';
 import { MembresiasModule } from './membresias/membresias.module.js';
 import { NotificacionesModule } from './notificaciones/notificaciones.module.js';
 import { OrganizacionesModule } from './organizaciones/organizaciones.module.js';
+import { PresenciaModule } from './presencia/presencia.module.js';
 import { ReservasModule } from './reservas/reservas.module.js';
 import { SaludController } from './salud/salud.controller.js';
 import { VehiculosModule } from './vehiculos/vehiculos.module.js';
@@ -25,6 +26,7 @@ import { ViajesModule } from './viajes/viajes.module.js';
     BilleteraModule,
     ViajesModule,
     ReservasModule,
+    PresenciaModule,
   ],
   controllers: [SaludController],
 })
