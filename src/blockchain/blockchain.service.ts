@@ -36,6 +36,7 @@ const ABI_ESCROW = [
   'function bloquear(bytes32 idReserva, address pagador, address conductor, uint256 monto, uint256 plazo, uint8 v, bytes32 r, bytes32 s)',
   'function reservas(bytes32) view returns (address pagador, address conductor, uint256 monto, uint8 estado, bytes32 hashPrueba)',
   'function liberar(bytes32 idReserva, bytes32 hashPrueba)',
+  'function hasRole(bytes32 role, address account) view returns (bool)',
   'event ReservaBloqueada(bytes32 indexed idReserva, address indexed pagador, address indexed conductor, uint256 monto)',
   'event PagoLiberado(bytes32 indexed idReserva, address indexed conductor, uint256 monto, bytes32 hashPrueba)',
   'error ReservaExistente(bytes32 idReserva)',
@@ -297,6 +298,15 @@ export class CadenaReal implements Cadena {
     const tx = await escrow.liberar(idReserva, hashPrueba);
     await tx.wait(1, TIEMPO_RECIBO_MS);
     return tx.hash as string;
+  }
+
+  /** HU-24 plan §7: el despliegue no otorga los roles. `null` si no hay escrow o verificador configurados. */
+  async verificadorTieneRol(): Promise<boolean | null> {
+    if (!this.escrow || !this.verificador) return null;
+    return (await this.escrow.hasRole(
+      id('ROL_VERIFICADOR'),
+      this.verificador.address,
+    )) as boolean;
   }
 
   hashDeLiberacion(idReserva: string): Promise<string> {
@@ -563,7 +573,28 @@ export class BlockchainService implements OnModuleInit {
 
   /** Una mala configuración detiene el arranque; en pruebas se elige al primer uso. */
   onModuleInit(): void {
-    if (process.env.NODE_ENV !== 'test') this.actual ??= crearCadena();
+    if (process.env.NODE_ENV === 'test') return;
+    this.actual ??= crearCadena();
+    if (this.actual instanceof CadenaReal)
+      void this.avisarRolVerificador(this.actual);
+  }
+
+  /**
+   * HU-24 plan §7: sin `ROL_VERIFICADOR` ningún pago se libera (quedan pendientes con su alerta). Solo aviso: un nodo
+   * caído al arrancar no detiene el backend. Sin el mensaje del error: el de ethers lleva la URL del nodo.
+   */
+  async avisarRolVerificador(cadena: CadenaReal): Promise<void> {
+    const registro = new Logger(BlockchainService.name);
+    try {
+      if ((await cadena.verificadorTieneRol()) === false)
+        registro.warn(
+          'La cuenta verificadora no tiene ROL_VERIFICADOR en el escrow: los pagos quedarán pendientes (contracts/README.md)',
+        );
+    } catch (error) {
+      registro.warn(
+        `No se pudo comprobar ROL_VERIFICADOR (${(error as { code?: string }).code ?? 'sin código'})`,
+      );
+    }
   }
 
   get cadena(): Cadena {

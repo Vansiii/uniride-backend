@@ -280,6 +280,9 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
       expect((await cadena.estadoReservaEscrow(idReserva)).estado).toBe(
         'bloqueada',
       );
+      // El aviso de arranque (plan §7) lo habría dicho antes del primer pago.
+      expect(await conRelayer.verificadorTieneRol()).toBe(false);
+      expect(await cadena.verificadorTieneRol()).toBe(true);
     });
   });
 });

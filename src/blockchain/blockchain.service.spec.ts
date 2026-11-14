@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { Logger } from '@nestjs/common';
 import { AbiCoder, id, Wallet, zeroPadValue } from 'ethers';
 import {
   BlockchainService,
@@ -615,6 +616,64 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
     expect(
       new CadenaReal(url, TOKEN, 31337).exploradorTxUrl('0xabc'),
     ).toBeNull();
+  });
+
+  describe('HU-24: aviso de ROL_VERIFICADOR al arrancar', () => {
+    const conVerificador = () =>
+      new CadenaReal(url, TOKEN, 31337, undefined, undefined, ESCROW, LLAVE);
+    const avisos = () => vi.spyOn(Logger.prototype, 'warn');
+    afterEach(() => vi.restoreAllMocks());
+
+    it('pregunta hasRole(ROL_VERIFICADOR, verificador) al escrow', async () => {
+      nodo.resultados.eth_call = `0x${'1'.padStart(64, '0')}`;
+      expect(await conVerificador().verificadorTieneRol()).toBe(true);
+      const llamada = nodo.llamadas.find((l) => l.metodo === 'eth_call');
+      expect(llamada?.a?.toLowerCase()).toBe(ESCROW.toLowerCase());
+      expect(llamada?.datos).toContain(id('ROL_VERIFICADOR').slice(2));
+      expect(llamada?.datos?.toLowerCase()).toContain(
+        new Wallet(LLAVE).address.slice(2).toLowerCase(),
+      );
+    });
+
+    it('sin escrow o sin verificador no pregunta', async () => {
+      expect(
+        await new CadenaReal(url, TOKEN, 31337).verificadorTieneRol(),
+      ).toBeNull();
+      expect(nodo.llamadas).toHaveLength(0);
+    });
+
+    it('sin el rol avisa; con el rol, no', async () => {
+      const warn = avisos();
+      nodo.resultados.eth_call = `0x${'0'.repeat(64)}`;
+      await new BlockchainService().avisarRolVerificador(conVerificador());
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('no tiene ROL_VERIFICADOR'),
+      );
+      warn.mockClear();
+      nodo.resultados.eth_call = `0x${'1'.padStart(64, '0')}`;
+      await new BlockchainService().avisarRolVerificador(conVerificador());
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('nodo caído: avisa sin la URL del nodo y no rechaza', async () => {
+      const warn = avisos();
+      const caida = new CadenaReal(
+        'http://127.0.0.1:9',
+        TOKEN,
+        31337,
+        500,
+        undefined,
+        ESCROW,
+        LLAVE,
+      );
+      await expect(
+        new BlockchainService().avisarRolVerificador(caida),
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('No se pudo comprobar ROL_VERIFICADOR'),
+      );
+      expect(String(warn.mock.calls[0][0])).not.toContain('127.0.0.1');
+    });
   });
 });
 
