@@ -14,6 +14,7 @@ const CONSTRUIDAS = [
   'POST /api/v1/viajes/:id/reservas',
   'POST /api/v1/viajes/:id/llave-trayecto',
   'POST /api/v1/reservas/:id/abordaje',
+  'POST /api/v1/reservas/:id/bajada',
 ];
 
 /** Escrituras de estos módulos que NO piden biometría, cada una con su motivo (RN-2). */
@@ -22,6 +23,10 @@ const SIN_BIOMETRIA: Record<string, string> = {
     'crea una orden pendiente: el dinero solo se mueve al confirmarla, que sí pide la huella',
   'POST /api/v1/viajes/:id/desafios':
     'renueva el código cada 25 s con la llave de trayecto (D-22): la huella se pidió al registrarla, que es acción sensible',
+  'POST /api/v1/viajes/:id/posiciones':
+    'HU-23 CA-1: una posición cada 15 s, también con la pantalla apagada, firmada con la llave de trayecto del conductor (D-22); no mueve dinero ni cambia estados',
+  'POST /api/v1/reservas/:id/posiciones':
+    'HU-23 CA-1: lo mismo con la llave de trayecto del pasajero, registrada con huella en el abordaje',
 };
 
 /** Donde viven las acciones de dinero y de viaje; una escritura nueva aquí debe estar en el catálogo o justificada. */

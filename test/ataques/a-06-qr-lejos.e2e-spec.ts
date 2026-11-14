@@ -57,4 +57,21 @@ describe('A-06 · código enviado a alguien lejos (e2e)', () => {
       })
       .expect(422);
   });
+
+  it('HU-23: la bajada a ~60 m se rechaza, el código queda gastado y la reserva sigue abordada', async () => {
+    const v = await h.enViaje(org);
+    const p = v.s.pasajeros[0];
+    const nonce = await h.codigoBajada(v.s, v.conductor);
+    const res = await h
+      .bajar(p, p.reservaId, nonce, {
+        posicion: posicion({ lat: ENCUENTRO.lat + A_60_M }),
+      })
+      .expect(422);
+    expect(res.body).toMatchObject({
+      codigo: 'DISTANCIA',
+      mensaje: 'Estás demasiado lejos del conductor para confirmar la bajada.',
+    });
+    await h.bajar(p, p.reservaId, nonce).expect(409);
+    expect(await h.estadoReserva(p.reservaId)).toBe('abordada');
+  });
 });

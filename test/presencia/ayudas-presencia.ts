@@ -28,6 +28,28 @@ export interface Escenario {
   pasajeros: Pasajero[];
 }
 
+/** Grados de latitud que miden `m` metros sobre un meridiano. */
+export const gradosLat = (m: number) => ((m / 6_371_008.8) * 180) / Math.PI;
+
+/**
+ * HU-23: `n` posiciones cada 15 s hacia el norte desde el encuentro, la última hace `hastaHaceS` segundos, a `kmh` y
+ * corridas `desplazamientoM` hacia el norte.
+ */
+export const traza = (
+  n: number,
+  { kmh = 30, hastaHaceS = 5, desplazamientoM = 0, simulada = false } = {},
+) => {
+  const ahora = Date.now();
+  const metrosPorPaso = (kmh * 1000 * 15) / 3600;
+  return Array.from({ length: n }, (_, i) => ({
+    lat: ENCUENTRO.lat + gradosLat(i * metrosPorPaso + desplazamientoM),
+    lng: ENCUENTRO.lng,
+    precisionM: 8,
+    tomadaEn: ahora - (hastaHaceS + (n - 1 - i) * 15) * 1000,
+    simulada,
+  }));
+};
+
 export const posicion = (extra: object = {}) => ({
   ...ENCUENTRO,
   precisionM: 8,
@@ -155,6 +177,92 @@ export function ayudasPresencia(
       .send(cuerpo);
   };
 
+  /** Aborda y devuelve la llave de trayecto del pasajero, la que firma sus posiciones (HU-23). */
+  const abordarConLlave = async (
+    s: Escenario,
+    p: Pasajero,
+    l: LlaveTrayecto,
+  ): Promise<LlaveTrayecto> => {
+    const llave = par();
+    const { body } = await abordar(p, p.reservaId, await codigo(s, l), {
+      llavePublicaTrayectoPem: pem(llave),
+    }).expect(200);
+    return { id: body.llaveTrayectoId, llave };
+  };
+
+  /** HU-23: el abordaje pasó hace `ms`, así las posiciones con hora anterior a ahora entran en el trayecto. */
+  const retrasarAbordaje = (reservaId: string, ms: number) =>
+    e().bd.query(
+      `UPDATE pruebas_presencia SET creado_en = creado_en - make_interval(secs => $2::double precision / 1000)
+       WHERE reserva_id = $1 AND tipo = 'abordaje'`,
+      [reservaId, ms],
+    );
+
+  /** Lote de posiciones firmado con una llave de trayecto: `viajes/:id` (conductor) o `reservas/:id` (pasajero). */
+  const posiciones = (
+    token: string,
+    ruta: string,
+    l: LlaveTrayecto,
+    puntos: object[],
+  ) => {
+    const cuerpo = { puntos };
+    return e()
+      .api()
+      .post(ruta)
+      .set(conToken(token))
+      .set(firmarTrayecto(ruta, l, JSON.stringify(cuerpo)))
+      .send(cuerpo);
+  };
+  const rutaConductor = (viajeId: string) =>
+    `/api/v1/viajes/${viajeId}/posiciones`;
+  const rutaPasajero = (reservaId: string) =>
+    `/api/v1/reservas/${reservaId}/posiciones`;
+
+  /** Un código de bajada vigente (HU-23 RN-7). */
+  const codigoBajada = async (s: Escenario, l: LlaveTrayecto) =>
+    (
+      await desafio(s.conductor.token, s.viajeId, l, {
+        tipo: 'bajada',
+        posicion: posicion(),
+      }).expect(201)
+    ).body.nonce as string;
+
+  const bajar = (
+    p: Persona,
+    reservaId: string,
+    nonce: string,
+    extra: object = {},
+  ) => {
+    const ruta = `/api/v1/reservas/${reservaId}/bajada`;
+    const cuerpo = {
+      nonce,
+      posicion: posicion({ lat: ENCUENTRO.lat + A_10_M }),
+      tokenIntegridad: INTEGRO,
+      ...extra,
+    };
+    return e()
+      .api()
+      .post(ruta)
+      .set(conToken(p.token))
+      .set(firmar('POST', ruta, p.dispositivo, JSON.stringify(cuerpo)))
+      .send(cuerpo);
+  };
+
+  /**
+   * Viaje de 5 min ya abordado: llaves del conductor y del pasajero, y el abordaje movido 5 min atrás. Con `n` puntos
+   * cada 15 s de cada uno, juntos (a 20 m), salvo lo que se cambie.
+   */
+  const enViaje = async (organizacionId: string, cuantos = 1) => {
+    const s = await escenario(organizacionId, cuantos);
+    const conductor = await llaveConductor(s);
+    const pasajeros: LlaveTrayecto[] = [];
+    for (const p of s.pasajeros) {
+      pasajeros.push(await abordarConLlave(s, p, conductor));
+      await retrasarAbordaje(p.reservaId, 5 * 60_000);
+    }
+    return { s, conductor, pasajeros };
+  };
+
   const pruebas = async (reservaId: string) =>
     (
       await e().bd.query(
@@ -182,6 +290,14 @@ export function ayudasPresencia(
     desafio,
     codigo,
     abordar,
+    abordarConLlave,
+    retrasarAbordaje,
+    posiciones,
+    rutaConductor,
+    rutaPasajero,
+    codigoBajada,
+    bajar,
+    enViaje,
     pruebas,
     estadoReserva,
     estadoViaje,

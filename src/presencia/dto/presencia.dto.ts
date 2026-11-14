@@ -1,6 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -62,11 +65,12 @@ export class LlaveTrayectoCreadaDto {
 
 export class CrearDesafioDto {
   @ApiProperty({
-    enum: ['abordaje'],
-    description: '`bajada` llega con HU-23.',
+    enum: ['abordaje', 'bajada'],
+    description:
+      '`abordaje` dentro de la ventana de salida (RN-3); `bajada` sin ventana, con el viaje en curso (HU-23 RN-7).',
   })
-  @IsIn(['abordaje'])
-  tipo!: 'abordaje';
+  @IsIn(['abordaje', 'bajada'])
+  tipo!: 'abordaje' | 'bajada';
   @ApiProperty({ type: PosicionDto })
   @ValidateNested()
   @Type(() => PosicionDto)
@@ -97,7 +101,8 @@ export class EstadoDesafioDto {
   pasajeros!: PasajeroViajeDto[];
 }
 
-export class AbordarDto {
+/** Lo que el pasajero envía al escanear, en el abordaje y en la bajada (HU-23 RN-7). */
+export class EncuentroDto {
   @ApiProperty({ description: 'El nonce leído del QR.' })
   @Matches(/^[A-Za-z0-9_-]{43}$/)
   nonce!: string;
@@ -112,6 +117,9 @@ export class AbordarDto {
   @IsString()
   @MaxLength(10_000)
   tokenIntegridad!: string;
+}
+
+export class AbordarDto extends EncuentroDto {
   @ApiProperty({
     description: 'Llave de trayecto del pasajero (EC P-256, PEM), D-22.',
   })
@@ -128,4 +136,54 @@ export class AbordajeDto {
       '`true` si ya estaba verificada: no se creó otra prueba (CA-14).',
   })
   yaVerificado!: boolean;
+  @ApiProperty({
+    required: false,
+    format: 'uuid',
+    description:
+      'HU-23: la llave de trayecto del pasajero que quedó vigente; firma sus posiciones (`X-Llave-Trayecto-Id`). Falta si la reserva ya bajó.',
+  })
+  llaveTrayectoId?: string;
+}
+
+export class BajadaDto {
+  @ApiProperty({ enum: ['verificada', 'verificacion_fallida', 'pagada'] })
+  estado!: 'verificada' | 'verificacion_fallida' | 'pagada';
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: [
+      'ubicacion_simulada',
+      'salto_imposible',
+      'datos_insuficientes',
+      'trayectos_separados',
+    ],
+    description:
+      'Por qué no se verificó (CA-5…CA-7, CA-10); nulo si se verificó.',
+  })
+  motivo!: string | null;
+  @ApiProperty({
+    description: '`true` si la bajada ya estaba hecha: no se volvió a evaluar.',
+  })
+  yaVerificado!: boolean;
+}
+
+/** HU-23 RN-1: un lote de posiciones cada 15 s, o las guardadas sin señal (CA-2): hasta 15 min. */
+export class PosicionesDto {
+  @ApiProperty({ type: [PosicionDto], minItems: 1, maxItems: 60 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(60)
+  @ValidateNested({ each: true })
+  @Type(() => PosicionDto)
+  puntos!: PosicionDto[];
+}
+
+export class PosicionesAceptadasDto {
+  @ApiProperty({ description: 'Guardadas para la evaluación.' })
+  aceptados!: number;
+  @ApiProperty({
+    description:
+      'Repetidas, anteriores al abordaje o con hora futura (CA-9): no son error.',
+  })
+  ignorados!: number;
 }
