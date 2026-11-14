@@ -610,6 +610,7 @@ describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
       expect.objectContaining({
         accion: 'pago.liberacion.atascada',
         entidadId: 'r1',
+        organizacionId: 'o1',
       }),
       c.tx,
     );

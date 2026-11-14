@@ -476,9 +476,15 @@ export class PresenciaService {
       where: { usuarioId: r.viaje.conductorId },
       select: { id: true },
     });
+    // RN-4: el hash resume las dos pruebas; sin la del abordaje no se ancla nada (revierte la bajada).
+    const hashAbordaje = r.pruebas[0]?.hashPrueba;
+    if (!hashAbordaje)
+      throw new Error(
+        `Reserva ${reservaId} abordada sin prueba de abordaje aceptada`,
+      );
     const hashPrueba = hashPruebaPresencia({
       reservaId,
-      hashAbordaje: r.pruebas[0]?.hashPrueba ?? '',
+      hashAbordaje,
       hashBajada,
       evaluacion: { ...evaluacion },
     });

@@ -300,9 +300,10 @@ export class CadenaReal implements Cadena {
     return tx.hash as string;
   }
 
-  /** HU-24 plan §7: el despliegue no otorga los roles. `null` si no hay escrow o verificador configurados. */
+  /** HU-24 plan §7: el despliegue no otorga los roles. `null` sin escrow; `false` también sin cuenta verificadora. */
   async verificadorTieneRol(): Promise<boolean | null> {
-    if (!this.escrow || !this.verificador) return null;
+    if (!this.escrow) return null;
+    if (!this.verificador) return false;
     return (await this.escrow.hasRole(
       id('ROL_VERIFICADOR'),
       this.verificador.address,
@@ -396,7 +397,7 @@ export class CadenaSimulada implements Cadena {
     if (previa) return previa;
     const hash = id(`recarga-simulada:${idOrden}`);
     this.acunadas.set(idOrden, hash);
-    this.saldos.set(destino, (this.saldos.get(destino) ?? 0n) + monto);
+    this.sumar(destino, monto);
     return hash;
   }
 
@@ -414,7 +415,7 @@ export class CadenaSimulada implements Cadena {
     const saldo = this.saldos.get(pagador) ?? 0n;
     if (saldo < datos.monto)
       throw new ErrorBloqueoPermanente('ERC20InsufficientBalance');
-    this.saldos.set(pagador, saldo - datos.monto);
+    this.sumar(pagador, -datos.monto);
     this.sumar(CadenaSimulada.ESCROW, datos.monto);
     const hash = id(`bloqueo-simulado:${datos.idReserva}`);
     this.bloqueos.set(datos.idReserva, {
@@ -516,6 +517,16 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
     throw new Error(
       'Producción exige el firmante KMS del relayer y el del verificador (SP129); RELAYER_LLAVE_PRIVADA y VERIFICADOR_LLAVE_PRIVADA no se aceptan',
     );
+  // A-09: el relayer bloquea y el verificador libera; con la misma llave, una sola llave caliente haría las dos cosas.
+  if (
+    env.RELAYER_LLAVE_PRIVADA &&
+    env.VERIFICADOR_LLAVE_PRIVADA &&
+    new Wallet(env.RELAYER_LLAVE_PRIVADA).address ===
+      new Wallet(env.VERIFICADOR_LLAVE_PRIVADA).address
+  )
+    throw new Error(
+      'VERIFICADOR_LLAVE_PRIVADA debe ser otra cuenta que RELAYER_LLAVE_PRIVADA (A-09)',
+    );
   return new CadenaReal(
     env.CADENA_RPC_URL,
     token,
@@ -588,7 +599,7 @@ export class BlockchainService implements OnModuleInit {
     try {
       if ((await cadena.verificadorTieneRol()) === false)
         registro.warn(
-          'La cuenta verificadora no tiene ROL_VERIFICADOR en el escrow: los pagos quedarán pendientes (contracts/README.md)',
+          'La cuenta verificadora no tiene ROL_VERIFICADOR en el escrow (o falta VERIFICADOR_LLAVE_PRIVADA): los pagos quedarán pendientes (contracts/README.md)',
         );
     } catch (error) {
       registro.warn(

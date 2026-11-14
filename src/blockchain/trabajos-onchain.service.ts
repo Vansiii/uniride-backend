@@ -36,6 +36,7 @@ interface Objetivo {
   accion: string;
   entidad: string;
   entidadId: string;
+  organizacionId?: string;
 }
 
 type MovimientoDeTrabajo = Prisma.MovimientoBilleteraGetPayload<{
@@ -358,6 +359,8 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
           select: { estado: true, viajeId: true, organizacionId: true },
         }),
       );
+      // La alerta de RN-5 tras 5 intentos la ve la organización del viaje.
+      objetivo.organizacionId = reserva.organizacionId;
       const cerrar = (accion: string, detalle: Record<string, unknown>) =>
         this.cerrarSinPago(trabajo, movimiento, reserva.organizacionId, {
           accion,
@@ -498,6 +501,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
             entidadId: objetivo.entidadId,
             resultado: 'fallo',
             actorId: usuarioId,
+            organizacionId: objetivo.organizacionId,
             detalle: { intentos, motivo },
           },
           tx,

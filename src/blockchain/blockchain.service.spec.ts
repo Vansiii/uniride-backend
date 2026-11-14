@@ -115,6 +115,16 @@ describe('crearCadena', () => {
     ).toThrow('firmante KMS');
   });
 
+  it('A-09: rechaza la misma llave para relayer y verificador', () => {
+    expect(() =>
+      crearCadena({
+        ...valido,
+        RELAYER_LLAVE_PRIVADA: LLAVE,
+        VERIFICADOR_LLAVE_PRIVADA: LLAVE,
+      }),
+    ).toThrow('otra cuenta');
+  });
+
   it('rechaza una DIRECCION_TOKEN_URC inválida en cualquier entorno', () => {
     expect(() =>
       crearCadena({ ...valido, DIRECCION_TOKEN_URC: '0x123' }),
@@ -635,10 +645,20 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
       );
     });
 
-    it('sin escrow o sin verificador no pregunta', async () => {
+    it('sin escrow no pregunta; con escrow y sin verificador es false sin preguntar', async () => {
       expect(
         await new CadenaReal(url, TOKEN, 31337).verificadorTieneRol(),
       ).toBeNull();
+      expect(
+        await new CadenaReal(
+          url,
+          TOKEN,
+          31337,
+          undefined,
+          undefined,
+          ESCROW,
+        ).verificadorTieneRol(),
+      ).toBe(false);
       expect(nodo.llamadas).toHaveLength(0);
     });
 
