@@ -36,8 +36,11 @@ export const posicion = (extra: object = {}) => ({
 });
 
 /** Cliente de prueba de HU-22: viajes en la ventana de abordaje, llave de trayecto, códigos y abordajes firmados. */
-export function ayudasPresencia(e: () => Entorno) {
-  const r = ayudasReservas(e);
+// Recibe el cliente de reservas del archivo, si ya tiene uno: dos contadores de correos crearían el mismo `conductor1@…`.
+export function ayudasPresencia(
+  e: () => Entorno,
+  r: ReturnType<typeof ayudasReservas> = ayudasReservas(e),
+) {
   const conToken = r.b.conToken;
 
   /** Cambia la hora de salida respecto de ahora: con +10 min el viaje está dentro de la ventana (RN-3). */
