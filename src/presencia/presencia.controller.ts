@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   Param,
@@ -42,6 +43,7 @@ import {
   AbordarDto,
   CrearDesafioDto,
   DesafioDto,
+  EstadoDesafioDto,
   LlaveTrayectoCreadaDto,
   RegistrarLlaveTrayectoDto,
 } from './dto/presencia.dto.js';
@@ -158,6 +160,33 @@ export class PresenciaController {
       viajeId,
       llave,
       dto,
+    );
+  }
+
+  /** Sin firma: la app del conductor lo sondea cada 3 s y pide otro código apenas este deja de servir (RN-1). */
+  @Get('viajes/:id/desafios/:nonce')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({ type: EstadoDesafioDto })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_ENCONTRADO`: no existe, es de otra organización o no eres su conductor.',
+  })
+  estadoDesafio(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) viajeId: string,
+    @Param('nonce') nonce: string,
+  ): Promise<EstadoDesafioDto> {
+    return this.servicio.estadoDesafio(
+      usuario.id,
+      organizacionId,
+      viajeId,
+      nonce,
     );
   }
 

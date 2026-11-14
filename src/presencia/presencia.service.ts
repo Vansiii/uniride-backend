@@ -17,6 +17,7 @@ import type {
   AbordarDto,
   CrearDesafioDto,
   DesafioDto,
+  EstadoDesafioDto,
   LlaveTrayectoCreadaDto,
   RegistrarLlaveTrayectoDto,
 } from './dto/presencia.dto.js';
@@ -205,6 +206,28 @@ export class PresenciaService {
       qrImagenBase64: imagen.toString('base64'),
       pasajeros,
     };
+  }
+
+  /** RN-1: el conductor ve enseguida que su código se gastó, también tras un escaneo rechazado. Solo el conductor del viaje. */
+  async estadoDesafio(
+    usuarioId: string,
+    organizacionId: string,
+    viajeId: string,
+    nonce: string,
+  ): Promise<EstadoDesafioDto> {
+    const [desafio, pasajeros] = await Promise.all([
+      this.prisma.enOrganizacion(organizacionId, (tx) =>
+        tx.desafioHandshake.findFirst({
+          where: { nonce, viajeId, viaje: { conductorId: usuarioId } },
+          select: { usadoEn: true, venceEn: true },
+        }),
+      ),
+      // Lanza 404 si no es su conductor: no se dice nada del código.
+      this.viajes.pasajeros(usuarioId, organizacionId, viajeId),
+    ]);
+    const vigente =
+      !!desafio && desafio.usadoEn === null && desafio.venceEn > new Date();
+    return { vigente, pasajeros };
   }
 
   /**

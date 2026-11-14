@@ -215,6 +215,37 @@ describe('HU-22 · verificación de abordaje (e2e)', () => {
     expect(rows[0].llave_publica).toBe(normalizarLlavePublica(nueva));
   });
 
+  it('RN-1: el conductor ve que su código dejó de servir también tras un escaneo rechazado', async () => {
+    const s = await h.escenario(org);
+    const p = s.pasajeros[0];
+    const nonce = await h.codigo(s, await h.llaveConductor(s));
+    const estado = (token: string, n = nonce) =>
+      e
+        .api()
+        .get(`/api/v1/viajes/${s.viajeId}/desafios/${n}`)
+        .set(h.r.b.conToken(token));
+
+    const antes = (await estado(s.conductor.token).expect(200)).body;
+    expect(antes.vigente).toBe(true);
+    expect(antes.pasajeros).toEqual([
+      expect.objectContaining({ reservaId: p.reservaId, estado: 'confirmada' }),
+    ]);
+    await h
+      .abordar(p, p.reservaId, nonce, {
+        posicion: posicion({ lat: ENCUENTRO.lat + A_60_M }),
+      })
+      .expect(422);
+    expect((await estado(s.conductor.token).expect(200)).body.vigente).toBe(
+      false,
+    );
+    expect(
+      (await estado(s.conductor.token, 'x'.repeat(43)).expect(200)).body
+        .vigente,
+    ).toBe(false);
+    // Un pasajero (o cualquier otro) no puede consultarlo: no es su viaje.
+    await estado(p.token).expect(404);
+  });
+
   it('dos registros de la llave del conductor a la vez: ninguno da 500 y queda una sola vigente', async () => {
     const s = await h.escenario(org);
     const [a, b] = await Promise.all([

@@ -86,6 +86,17 @@ export class DesafioDto {
   pasajeros!: PasajeroViajeDto[];
 }
 
+/** Lo que el conductor sondea cada 3 s: si su código sigue sin usar y sus pasajeros. */
+export class EstadoDesafioDto {
+  @ApiProperty({
+    description:
+      '`false` si el código ya se usó (aceptado o rechazado, RN-1), venció o no es de este viaje: la app pide otro.',
+  })
+  vigente!: boolean;
+  @ApiProperty({ type: [PasajeroViajeDto] })
+  pasajeros!: PasajeroViajeDto[];
+}
+
 export class AbordarDto {
   @ApiProperty({ description: 'El nonce leído del QR.' })
   @Matches(/^[A-Za-z0-9_-]{43}$/)
