@@ -118,25 +118,32 @@ export class PresenciaService {
       throw RECHAZOS.no_integro();
     }
 
-    return this.prisma.enOrganizacion(organizacionId, async (tx) => {
-      const { id } = await this.reemplazarLlave(tx, {
-        organizacionId,
-        viajeId,
-        usuarioId,
-        dispositivoId,
-        llavePublica,
+    try {
+      return await this.prisma.enOrganizacion(organizacionId, async (tx) => {
+        const { id } = await this.reemplazarLlave(tx, {
+          organizacionId,
+          viajeId,
+          usuarioId,
+          dispositivoId,
+          llavePublica,
+        });
+        await this.auditar(
+          organizacionId,
+          usuarioId,
+          'trayecto.llave',
+          'ok',
+          viajeId,
+          {},
+          tx,
+        );
+        return { llaveTrayectoId: id };
       });
-      await this.auditar(
-        organizacionId,
-        usuarioId,
-        'trayecto.llave',
-        'ok',
-        viajeId,
-        {},
-        tx,
-      );
-      return { llaveTrayectoId: id };
-    });
+    } catch (e) {
+      // Dos registros a la vez: el índice de la llave vigente deja una y el perdedor no deja nada.
+      if ((e as { code?: string }).code === 'P2002')
+        throw error(409, 'CONFLICTO_CONCURRENTE', 'error');
+      throw e;
+    }
   }
 
   /** CA-1, CA-11: código nuevo firmado con la llave de trayecto del conductor, sin huella (D-22). */
@@ -247,8 +254,22 @@ export class PresenciaService {
       );
       throw RECHAZOS.sin_reserva();
     }
-    // CA-14: idempotente, sin otra prueba.
-    if (ESTADOS_YA_ABORDADA.includes(reserva.estado)) return YA_VERIFICADO;
+    // CA-14: idempotente, sin otra prueba. La app creó otra llave de trayecto al escanear y borró la anterior:
+    // mientras dura el trayecto, la nueva pasa a ser la vigente (la petición ya vino con huella y del dispositivo activo).
+    if (ESTADOS_YA_ABORDADA.includes(reserva.estado)) {
+      if (reserva.estado === 'abordada')
+        await this.prisma.enOrganizacion(organizacionId, (tx) =>
+          this.reemplazarLlave(tx, {
+            organizacionId,
+            viajeId: reserva.viajeId,
+            reservaId: reserva.id,
+            usuarioId,
+            dispositivoId,
+            llavePublica,
+          }),
+        );
+      return YA_VERIFICADO;
+    }
 
     const p = dto.posicion;
     const rechazar = async (
@@ -416,7 +437,7 @@ export class PresenciaService {
     return tx.llaveTrayecto.create({ data: datos, select: { id: true } });
   }
 
-  /** Lanza el 503 propio si Google no responde (spec §4): nada cambió. */
+  /** Lanza el 503 propio si Google no responde (spec §4). En el abordaje el código ya quedó gastado (RN-1). */
   private async verificarIntegridad(
     token: string,
     nonce: string,

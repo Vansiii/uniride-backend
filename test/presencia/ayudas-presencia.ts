@@ -10,7 +10,8 @@ export const ENCUENTRO = { lat: -17.783327, lng: -63.182129 };
 export const A_10_M = 0.00009;
 export const A_60_M = 0.00054;
 
-const par = () => generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+export const par = () =>
+  generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 export const pem = (k: ReturnType<typeof par>) =>
   k.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 

@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -90,7 +91,7 @@ export class PresenciaController {
   @ApiConflictResponse({
     type: ErrorDto,
     description:
-      '`FUERA_DE_VENTANA` (trae `desde` y `hasta`, CA-11) o `SIN_RESERVAS`.',
+      '`FUERA_DE_VENTANA` (trae `desde` y `hasta`, CA-11), `SIN_RESERVAS` o `CONFLICTO_CONCURRENTE` (otro registro a la vez ganó).',
   })
   @ApiUnprocessableEntityResponse({
     type: ErrorDto,
@@ -120,6 +121,8 @@ export class PresenciaController {
 
   @Post('viajes/:id/desafios')
   @RequiereFirmaTrayecto()
+  // La llave de trayecto vive el viaje: una cuenta suspendida después deja de emitir códigos.
+  @UseGuards(CuentaActivaGuard)
   @ApiCreatedResponse({
     type: DesafioDto,
     description:
@@ -130,7 +133,10 @@ export class PresenciaController {
     description:
       '`FIRMA_TRAYECTO_INVALIDA` (llave ajena, revocada, de otro viaje o de un dispositivo inactivo) o `PETICION_EXPIRADA`.',
   })
-  @ApiForbiddenResponse({ type: ErrorDto, description: '`NO_AUTORIZADO`.' })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO` o `CUENTA_SUSPENDIDA`.',
+  })
   @ApiConflictResponse({
     type: ErrorDto,
     description: '`FUERA_DE_VENTANA` (trae `desde` y `hasta`).',

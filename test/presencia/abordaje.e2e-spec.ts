@@ -4,8 +4,11 @@ import {
   A_60_M,
   ENCUENTRO,
   ayudasPresencia,
+  par,
+  pem,
   posicion,
 } from './ayudas-presencia.js';
+import { normalizarLlavePublica } from '../../src/dispositivos/dispositivos.service.js';
 
 /** HU-22: llave de trayecto del conductor, códigos rotativos y abordaje verificado (CA-1, CA-2, CA-11, CA-13, CA-14). */
 describe('HU-22 · verificación de abordaje (e2e)', () => {
@@ -191,6 +194,56 @@ describe('HU-22 · verificación de abordaje (e2e)', () => {
       .expect(200);
     expect(body).toEqual({ estado: 'abordada', yaVerificado: true });
     expect(await h.pruebas(p.reservaId)).toHaveLength(1);
+  });
+
+  it('CA-14: la llave de trayecto que la app creó al volver a escanear pasa a ser la vigente', async () => {
+    const s = await h.escenario(org);
+    const p = s.pasajeros[0];
+    const l = await h.llaveConductor(s);
+    await h.abordar(p, p.reservaId, await h.codigo(s, l)).expect(200);
+    const nueva = pem(par());
+    await h
+      .abordar(p, p.reservaId, 'x'.repeat(43), {
+        llavePublicaTrayectoPem: nueva,
+      })
+      .expect(200);
+    const { rows } = await e.bd.query(
+      `SELECT llave_publica FROM llaves_trayecto WHERE reserva_id = $1 AND revocada_en IS NULL`,
+      [p.reservaId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].llave_publica).toBe(normalizarLlavePublica(nueva));
+  });
+
+  it('dos registros de la llave del conductor a la vez: ninguno da 500 y queda una sola vigente', async () => {
+    const s = await h.escenario(org);
+    const [a, b] = await Promise.all([
+      h.registrarLlave(s.conductor, s.viajeId).peticion,
+      h.registrarLlave(s.conductor, s.viajeId).peticion,
+    ]);
+    expect([a.status, b.status].sort()).toEqual(
+      a.status === b.status ? [201, 201] : [201, 409],
+    );
+    for (const r of [a, b])
+      if (r.status === 409) expect(r.body.codigo).toBe('CONFLICTO_CONCURRENTE');
+    const { rows } = await e.bd.query(
+      `SELECT 1 FROM llaves_trayecto WHERE viaje_id = $1 AND revocada_en IS NULL`,
+      [s.viajeId],
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it('una cuenta suspendida después de registrar la llave ya no emite códigos', async () => {
+    const s = await h.escenario(org);
+    const l = await h.llaveConductor(s);
+    await e.bd.query(
+      `UPDATE usuarios SET suspendida_en = now() WHERE id = $1`,
+      [s.conductor.id],
+    );
+    const { body } = await h
+      .desafio(s.conductor.token, s.viajeId, l)
+      .expect(403);
+    expect(body.codigo).toBe('CUENTA_SUSPENDIDA');
   });
 
   it('CA-13: un intento rechazado queda registrado con reserva, distancia y motivo, y en auditoría', async () => {
