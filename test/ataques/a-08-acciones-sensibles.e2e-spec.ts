@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import {
   prepararEntorno,
   DOMINIO,
@@ -13,6 +13,14 @@ import {
 } from '../billetera/ayudas-billetera.js';
 import { cuerpoViaje, RUTA_VIAJES } from '../viajes/ayudas-viajes.js';
 import { ayudasReservas, rutaReservar } from '../reservas/ayudas-reservas.js';
+import {
+  A_10_M,
+  ENCUENTRO,
+  INTEGRO,
+  ayudasPresencia,
+  pem,
+  posicion,
+} from '../presencia/ayudas-presencia.js';
 import { rutasRegistradas } from './catalogo-rutas.js';
 
 interface Caso {
@@ -40,6 +48,9 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
   const rs = ayudasReservas(() => e);
   // Mismo contador de correos que las reservas: dos clientes de viajes crearían el mismo `conductor1@…`.
   const v = rs.v;
+  const pr = ayudasPresencia(() => e, rs);
+  const llaveNueva = () =>
+    pem(generateKeyPairSync('ec', { namedCurve: 'prime256v1' }));
   let organizacionId: string;
   let n = 0;
 
@@ -98,9 +109,53 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
           expect(await rs.huella(p.id)).toEqual({ reservas: 0, bloqueos: 0 }),
       };
     },
+    'trayecto.llave': async () => {
+      const s = await pr.escenario(organizacionId);
+      return {
+        usuarioId: s.conductor.id,
+        token: s.conductor.token,
+        dispositivo: s.conductor.dispositivo,
+        ruta: `/api/v1/viajes/${s.viajeId}/llave-trayecto`,
+        cuerpo: { llavePublicaPem: llaveNueva(), tokenIntegridad: INTEGRO },
+        exito: 201,
+        auditoria: 'trayecto.llave',
+        sinEfecto: async () => {
+          const { rows } = await e.bd.query(
+            `SELECT 1 FROM llaves_trayecto WHERE viaje_id = $1`,
+            [s.viajeId],
+          );
+          expect(rows).toEqual([]);
+        },
+      };
+    },
+    'reserva.abordaje': async () => {
+      const s = await pr.escenario(organizacionId);
+      const p = s.pasajeros[0];
+      const nonce = await pr.codigo(s, await pr.llaveConductor(s));
+      return {
+        usuarioId: p.id,
+        token: p.token,
+        dispositivo: p.dispositivo,
+        ruta: `/api/v1/reservas/${p.reservaId}/abordaje`,
+        cuerpo: {
+          nonce,
+          posicion: posicion({ lat: ENCUENTRO.lat + A_10_M }),
+          tokenIntegridad: INTEGRO,
+          llavePublicaTrayectoPem: llaveNueva(),
+        },
+        exito: 200,
+        auditoria: 'reserva.abordaje',
+        sinEfecto: async () => {
+          expect(await pr.estadoReserva(p.reservaId)).toBe('confirmada');
+          expect(await pr.pruebas(p.reservaId)).toEqual([]);
+        },
+      };
+    },
   };
 
   beforeAll(async () => {
+    // HU-22: el abordaje y la llave de trayecto atestan con la integridad simulada.
+    process.env.MODO_EMULADOR_DEV = 'true';
     e = await prepararEntorno();
     organizacionId = (await v.organizacion('Acciones A08')).id;
   });

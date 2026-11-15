@@ -8,5 +8,7 @@ import { ViajesService } from './viajes.service.js';
   imports: [BilleteraModule, FirmaDispositivoModule],
   controllers: [ViajesController],
   providers: [ViajesService],
+  // HU-22: la pantalla «Mostrar código» reutiliza la lista de pasajeros.
+  exports: [ViajesService],
 })
 export class ViajesModule {}

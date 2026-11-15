@@ -5,8 +5,8 @@ function crear(filas: number) {
   const tx = { $executeRaw: vi.fn().mockResolvedValue(filas) };
   return { tx, transaccion: tx as unknown as Transaccion };
 }
-const sql = (c: ReturnType<typeof crear>) =>
-  (c.tx.$executeRaw.mock.calls[0][0] as string[])
+const sql = (c: ReturnType<typeof crear>, llamada = 0) =>
+  (c.tx.$executeRaw.mock.calls[llamada][0] as string[])
     .join('?')
     .replace(/\s+/g, ' ');
 
@@ -45,5 +45,15 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
     );
     expect(sql(c)).not.toContain("'pendiente'");
     expect(sql(c)).not.toContain("'fallida'");
+  });
+
+  it('HU-22 RN-7: reservado → en_curso con el primer abordaje, después del paso a reservado', async () => {
+    const c = crear(0);
+    await servicio.recalcular(c.transaccion, 'v1');
+    const enCurso = sql(c, 1);
+    expect(enCurso).toContain("SET estado = 'en_curso'");
+    expect(enCurso).toContain("estado = 'reservado'");
+    expect(enCurso).toContain("IN ('abordada', 'verificada', 'pagada')");
+    expect(enCurso).not.toContain("'confirmada'");
   });
 });
