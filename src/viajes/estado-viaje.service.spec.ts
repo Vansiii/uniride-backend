@@ -70,7 +70,18 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
     expect(verificado).toMatch(
       /NOT EXISTS .*IN \('pendiente', 'confirmada', 'abordada', 'verificacion_fallida'\)/,
     );
-    expect(c.tx.$executeRaw).toHaveBeenCalledTimes(3);
+  });
+
+  it('HU-24 CA-10: verificado → pagado cuando ninguna reserva queda sin pagar, al final', async () => {
+    const c = crear(0);
+    await servicio.recalcular(c.transaccion, 'v1');
+    const pagado = sql(c, 3);
+    expect(pagado).toContain("SET estado = 'pagado'");
+    expect(pagado).toContain("estado = 'verificado'");
+    expect(pagado).toMatch(
+      /NOT EXISTS .*IN \('pendiente', 'confirmada', 'abordada', 'verificada', 'verificacion_fallida'\)/,
+    );
+    expect(c.tx.$executeRaw).toHaveBeenCalledTimes(4);
   });
 
   it('HU-23 RN-10: bloquea la fila del viaje antes de mirar sus reservas (dos bajadas a la vez)', async () => {

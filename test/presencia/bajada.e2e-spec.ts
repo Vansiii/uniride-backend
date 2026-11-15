@@ -17,32 +17,7 @@ describe('HU-23 · bajada y verificación del viaje (e2e)', () => {
     await e.cerrar();
   });
 
-  type Viaje = Awaited<ReturnType<typeof h.enViaje>>;
-  /** Las dos trazas por la API, como las envían las apps (20 puntos, 5 min, a 20 m). */
-  const recorrer = async (
-    v: Viaje,
-    i = 0,
-    pasajero = traza(20, { desplazamientoM: 20 }),
-    conductor = traza(20),
-  ) => {
-    const p = v.s.pasajeros[i];
-    await h
-      .posiciones(
-        v.s.conductor.token,
-        h.rutaConductor(v.s.viajeId),
-        v.conductor,
-        conductor,
-      )
-      .expect(202);
-    await h
-      .posiciones(
-        p.token,
-        h.rutaPasajero(p.reservaId),
-        v.pasajeros[i],
-        pasajero,
-      )
-      .expect(202);
-  };
+  const recorrer = h.recorrer;
   const evaluacion = async (reservaId: string) =>
     (
       await e.bd.query(
@@ -102,11 +77,11 @@ describe('HU-23 · bajada y verificación del viaje (e2e)', () => {
     expect(pruebas.map((x) => x.resultado)).toEqual(['aceptada', 'aceptada']);
     expect(pruebas[1].hash_prueba).toMatch(/^[0-9a-f]{64}$/);
     expect(pruebas[1].hash_prueba).not.toBe(pruebas[0].hash_prueba);
-    // El pago lo libera HU-24: aquí no se encola nada.
+    // HU-24 RN-3: la misma Tx encola solo la liberación del pago.
     expect(
       (await e.bd.query(`SELECT count(*)::int AS n FROM trabajos_onchain`))
         .rows[0].n,
-    ).toBe(trabajos);
+    ).toBe(trabajos + 1);
   });
 
   it('CA-3: la bajada repetida responde su resultado sin otra prueba ni otra evaluación', async () => {

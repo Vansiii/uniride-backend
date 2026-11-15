@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import QRCode from 'qrcode';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
+import { MovimientosService } from '../billetera/movimientos.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import type { LlaveTrayectoFirmante } from '../comun/firma-trayecto.guard.js';
 import {
@@ -33,6 +34,7 @@ import {
   ventanaAbordaje,
   type Posicion,
 } from './geo.js';
+import { hashPruebaPresencia } from './prueba.js';
 import {
   DESFASE_PAR_MS,
   evaluarTrayecto,
@@ -130,6 +132,7 @@ export class PresenciaService {
     private readonly integridad: PlayIntegrityService,
     private readonly estadoViaje: EstadoViajeService,
     private readonly viajes: ViajesService,
+    private readonly movimientos: MovimientosService,
   ) {}
 
   /** CA-1: el conductor registra su llave de trayecto con huella (la petición) e integridad (RN-5). */
@@ -413,6 +416,8 @@ export class PresenciaService {
         });
         if (count === 0) return null;
         await this.guardarPrueba(tx, organizacionId, 'bajada', v);
+        if (ev.resultado === 'verificada')
+          await this.encolarLiberacion(tx, reserva.id, v.hashPrueba, ev);
         await this.estadoViaje.recalcular(tx, reserva.viajeId);
         // CA-15 sin coordenadas (RN-8): porcentaje, pares, velocidad y resultado.
         await this.auditar(
@@ -444,6 +449,59 @@ export class PresenciaService {
       motivo: evaluacion.motivo,
       yaVerificado: false,
     };
+  }
+
+  /**
+   * HU-24 RN-3: en la misma Tx que deja la reserva `verificada`, el pago al conductor queda en su libro (`pendiente`) y en
+   * la cola on-chain; nadie lo pide. El conductor ya tiene billetera: sin ella el bloqueo de HU-19 no se habría hecho.
+   */
+  private async encolarLiberacion(
+    tx: Transaccion,
+    reservaId: string,
+    hashBajada: string,
+    evaluacion: Evaluacion,
+  ): Promise<void> {
+    const r = await tx.reserva.findUniqueOrThrow({
+      where: { id: reservaId },
+      select: {
+        monto: true,
+        viaje: { select: { conductorId: true } },
+        pruebas: {
+          where: { tipo: 'abordaje', resultado: 'aceptada' },
+          select: { hashPrueba: true },
+        },
+      },
+    });
+    const billetera = await tx.billetera.findUniqueOrThrow({
+      where: { usuarioId: r.viaje.conductorId },
+      select: { id: true },
+    });
+    // RN-4: el hash resume las dos pruebas; sin la del abordaje no se ancla nada (revierte la bajada).
+    const hashAbordaje = r.pruebas[0]?.hashPrueba;
+    if (!hashAbordaje)
+      throw new Error(
+        `Reserva ${reservaId} abordada sin prueba de abordaje aceptada`,
+      );
+    const hashPrueba = hashPruebaPresencia({
+      reservaId,
+      hashAbordaje,
+      hashBajada,
+      evaluacion: { ...evaluacion },
+    });
+    const { movimiento } = await this.movimientos.registrar(
+      {
+        billeteraId: billetera.id,
+        tipo: 'liberacion_viaje',
+        monto: r.monto.toFixed(2),
+        claveIdempotencia: `liberacion:${reservaId}`,
+        reservaId,
+        metadatos: { hashPrueba },
+      },
+      tx,
+    );
+    await tx.trabajoOnchain.create({
+      data: { movimientoId: movimiento.id, operacion: 'liberar_reserva' },
+    });
   }
 
   /** Bajada repetida: el resultado ya guardado, sin otra prueba ni otra evaluación. */

@@ -22,6 +22,12 @@ export interface LlaveTrayecto {
 export interface Pasajero extends Persona {
   reservaId: string;
 }
+/** Personas ya creadas para un escenario (HU-24 A-10 mide sus saldos antes de reservar). */
+export interface Personas {
+  conductor: Persona;
+  pasajeros: Persona[];
+}
+
 export interface Escenario {
   conductor: Persona;
   viajeId: string;
@@ -77,12 +83,14 @@ export function ayudasPresencia(
   const escenario = async (
     organizacionId: string,
     cuantos = 1,
+    personas?: Personas,
   ): Promise<Escenario> => {
-    const conductor = await r.conductor(organizacionId);
+    const conductor =
+      personas?.conductor ?? (await r.conductor(organizacionId));
     const viajeId = await r.publicar(conductor);
     const pasajeros: Pasajero[] = [];
     for (let i = 0; i < cuantos; i++) {
-      const p = await r.pasajero(organizacionId);
+      const p = personas?.pasajeros[i] ?? (await r.pasajero(organizacionId));
       const { reservaId } = (await r.reservar(p, viajeId).expect(201)).body;
       pasajeros.push({ ...p, reservaId });
     }
@@ -252,8 +260,12 @@ export function ayudasPresencia(
    * Viaje de 5 min ya abordado: llaves del conductor y del pasajero, y el abordaje movido 5 min atrás. Con `n` puntos
    * cada 15 s de cada uno, juntos (a 20 m), salvo lo que se cambie.
    */
-  const enViaje = async (organizacionId: string, cuantos = 1) => {
-    const s = await escenario(organizacionId, cuantos);
+  const enViaje = async (
+    organizacionId: string,
+    cuantos = 1,
+    personas?: Personas,
+  ) => {
+    const s = await escenario(organizacionId, cuantos, personas);
     const conductor = await llaveConductor(s);
     const pasajeros: LlaveTrayecto[] = [];
     for (const p of s.pasajeros) {
@@ -261,6 +273,45 @@ export function ayudasPresencia(
       await retrasarAbordaje(p.reservaId, 5 * 60_000);
     }
     return { s, conductor, pasajeros };
+  };
+
+  type Viaje = Awaited<ReturnType<typeof enViaje>>;
+  /** Las dos trazas por la API, como las envían las apps (20 puntos, 5 min, a 20 m). */
+  const recorrer = async (
+    v: Viaje,
+    i = 0,
+    pasajero = traza(20, { desplazamientoM: 20 }),
+    conductor = traza(20),
+  ) => {
+    const p = v.s.pasajeros[i];
+    await posiciones(
+      v.s.conductor.token,
+      rutaConductor(v.s.viajeId),
+      v.conductor,
+      conductor,
+    ).expect(202);
+    await posiciones(
+      p.token,
+      rutaPasajero(p.reservaId),
+      v.pasajeros[i],
+      pasajero,
+    ).expect(202);
+  };
+
+  /** HU-24: viaje completo hasta la bajada verificada de cada pasajero; el pago queda en la cola. */
+  const verificado = async (
+    organizacionId: string,
+    cuantos = 1,
+    personas?: Personas,
+  ) => {
+    const v = await enViaje(organizacionId, cuantos, personas);
+    for (const [i, p] of v.s.pasajeros.entries()) {
+      await recorrer(v, i);
+      await bajar(p, p.reservaId, await codigoBajada(v.s, v.conductor)).expect(
+        200,
+      );
+    }
+    return v;
   };
 
   const pruebas = async (reservaId: string) =>
@@ -298,6 +349,8 @@ export function ayudasPresencia(
     codigoBajada,
     bajar,
     enViaje,
+    recorrer,
+    verificado,
     pruebas,
     estadoReserva,
     estadoViaje,

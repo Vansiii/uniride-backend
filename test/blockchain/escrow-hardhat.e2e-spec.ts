@@ -20,11 +20,14 @@ import {
  * Despliega contratos propios con los artefactos compilados de `contracts/` (`npm run build` allí).
  */
 const RPC = process.env.HARDHAT_RPC_URL;
-/** Cuentas 0 y 1 de Hardhat: llaves públicas y sin valor. */
+/** Cuentas 0, 1 y 2 de Hardhat: llaves públicas y sin valor. */
 const LLAVE_ADMIN =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const LLAVE_RELAYER =
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+/** HU-24: la cuenta verificadora, distinta del relayer. */
+const LLAVE_VERIFICADOR =
+  '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
 const URC = 10n ** 18n;
 const artefacto = (nombre: string) =>
   JSON.parse(
@@ -48,6 +51,7 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
   let cadena: CadenaReal;
   const ROL_ACUNADOR = keccak256(toUtf8Bytes('ROL_ACUNADOR'));
   const ROL_OPERADOR = keccak256(toUtf8Bytes('ROL_OPERADOR'));
+  const ROL_VERIFICADOR = keccak256(toUtf8Bytes('ROL_VERIFICADOR'));
   let n = 0;
   const nuevaReserva = () => id(`reserva-hardhat-${Date.now()}-${++n}`);
 
@@ -90,6 +94,12 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
     // El despliegue no otorga los roles (hallazgo del plan de HU-19).
     await (await token.grantRole(ROL_ACUNADOR, relayer.address)).wait();
     await (await escrow.grantRole(ROL_OPERADOR, relayer.address)).wait();
+    await (
+      await escrow.grantRole(
+        ROL_VERIFICADOR,
+        new Wallet(LLAVE_VERIFICADOR).address,
+      )
+    ).wait();
     const { chainId } = await proveedor.getNetwork();
     cadena = new CadenaReal(
       RPC as string,
@@ -98,6 +108,7 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
       undefined,
       LLAVE_RELAYER,
       await escrow.getAddress(),
+      LLAVE_VERIFICADOR,
     );
   });
 
@@ -123,6 +134,7 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
       pagador: p.address,
       conductor: c,
       monto: 10n * URC + URC / 2n,
+      hashPrueba: `0x${'00'.repeat(32)}`,
     });
     // Respuesta perdida: el hash se recupera del evento, sin enviar otra transacción.
     expect(await cadena.hashDeBloqueo(idReserva)).toBe(hash);
@@ -210,5 +222,92 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
     });
     await expect(falla).rejects.toThrow();
     await expect(falla).rejects.not.toBeInstanceOf(ErrorBloqueoPermanente);
+  });
+
+  describe('HU-24: liberar', () => {
+    const HASH_PRUEBA = `0x${'cd'.repeat(32)}`;
+    const bloqueada = async () => {
+      const p = await pasajero(50n);
+      const c = conductor();
+      const idReserva = nuevaReserva();
+      await cadena.bloquearReserva({
+        idReserva,
+        llavePagador: p.privateKey,
+        conductor: c,
+        monto: 10n * URC + URC / 2n,
+      });
+      return { c, idReserva };
+    };
+
+    it('CA-1, CA-2: la cuenta verificadora paga al conductor y la red guarda el hash de la prueba', async () => {
+      const { c, idReserva } = await bloqueada();
+      const hash = await cadena.liberarReserva(idReserva, HASH_PRUEBA);
+
+      expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+      expect(await cadena.leerSaldo(c)).toBe(10n * URC + URC / 2n);
+      expect(await cadena.estadoReservaEscrow(idReserva)).toMatchObject({
+        estado: 'liberada',
+        hashPrueba: HASH_PRUEBA,
+      });
+      // Respuesta perdida: el hash sale del evento PagoLiberado.
+      expect(await cadena.hashDeLiberacion(idReserva)).toBe(hash);
+    });
+
+    it('CA-4: liberar otra vez revierte con ReservaNoBloqueada y el conductor cobra una sola vez', async () => {
+      const { c, idReserva } = await bloqueada();
+      await cadena.liberarReserva(idReserva, HASH_PRUEBA);
+      await expect(
+        cadena.liberarReserva(idReserva, HASH_PRUEBA),
+      ).rejects.toThrow();
+      expect(await cadena.leerSaldo(c)).toBe(10n * URC + URC / 2n);
+    });
+
+    it('CA-5 / A-09: con la llave del relayer como verificadora el contrato rechaza y nada se paga', async () => {
+      const { c, idReserva } = await bloqueada();
+      const conRelayer = new CadenaReal(
+        RPC as string,
+        await token.getAddress(),
+        31337,
+        undefined,
+        LLAVE_RELAYER,
+        await escrow.getAddress(),
+        LLAVE_RELAYER,
+      );
+      await expect(
+        conRelayer.liberarReserva(idReserva, HASH_PRUEBA),
+      ).rejects.toThrow();
+      expect(await cadena.leerSaldo(c)).toBe(0n);
+      expect((await cadena.estadoReservaEscrow(idReserva)).estado).toBe(
+        'bloqueada',
+      );
+      // El aviso de arranque (plan §7) lo habría dicho antes del primer pago.
+      expect(await conRelayer.verificadorTieneRol()).toBe(false);
+      expect(await cadena.verificadorTieneRol()).toBe(true);
+    });
+
+    it('§4: la cuenta verificadora con el rol pero sin gas rechaza sin pagar ni resolver la reserva (el worker reintenta)', async () => {
+      const { c, idReserva } = await bloqueada();
+      const sinGas = Wallet.createRandom();
+      await (await escrow.grantRole(ROL_VERIFICADOR, sinGas.address)).wait();
+      const pobre = new CadenaReal(
+        RPC as string,
+        await token.getAddress(),
+        31337,
+        undefined,
+        LLAVE_RELAYER,
+        await escrow.getAddress(),
+        sinGas.privateKey,
+      );
+      const falla = pobre.liberarReserva(idReserva, HASH_PRUEBA);
+      await expect(falla).rejects.toThrow();
+      await expect(falla).rejects.not.toBeInstanceOf(ErrorBloqueoPermanente);
+      expect(await cadena.leerSaldo(c)).toBe(0n);
+      expect((await cadena.estadoReservaEscrow(idReserva)).estado).toBe(
+        'bloqueada',
+      );
+      // Con gas, el reintento paga.
+      await cadena.liberarReserva(idReserva, HASH_PRUEBA);
+      expect(await cadena.leerSaldo(c)).toBe(10n * URC + URC / 2n);
+    });
   });
 });

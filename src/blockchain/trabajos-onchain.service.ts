@@ -36,6 +36,7 @@ interface Objetivo {
   accion: string;
   entidad: string;
   entidadId: string;
+  organizacionId?: string;
 }
 
 type MovimientoDeTrabajo = Prisma.MovimientoBilleteraGetPayload<{
@@ -46,7 +47,7 @@ type MovimientoDeTrabajo = Prisma.MovimientoBilleteraGetPayload<{
  * Worker de la cola on-chain (D-10). La transacción no queda abierta mientras se espera a la cadena: tomar un trabajo
  * lo reserva 5 min, y si el proceso se corta otro lo retoma. Repetir es seguro porque el contrato no acuña dos veces
  * la misma orden ni bloquea dos veces la misma reserva. Nunca descarta un trabajo: el movimiento sigue `pendiente`
- * hasta que la cadena responda (RN-6, HU-19 RN-7). Despacha por `operacion`: `acunar_recarga` o `bloquear_reserva`.
+ * hasta que la cadena responda (RN-6, HU-19 RN-7). Despacha por `operacion`: `acunar_recarga`, `bloquear_reserva` o `liberar_reserva` (HU-24).
  */
 @Injectable()
 export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
@@ -94,7 +95,9 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
       const termino =
         trabajo.operacion === 'bloquear_reserva'
           ? await this.bloquearReserva(trabajo, movimiento)
-          : await this.acunarRecarga(trabajo, movimiento);
+          : trabajo.operacion === 'liberar_reserva'
+            ? await this.liberarReserva(trabajo, movimiento)
+            : await this.acunarRecarga(trabajo, movimiento);
       if (termino) terminados++;
     }
     return terminados;
@@ -213,13 +216,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
         }),
       );
       // Una reserva que ya no está pendiente no se bloquea (p. ej. otro worker la resolvió).
-      if (reserva.estado !== 'pendiente') {
-        await this.prisma.trabajoOnchain.update({
-          where: { id: trabajo.id },
-          data: { estado: 'terminado', ultimoError: null },
-        });
-        return true;
-      }
+      if (reserva.estado !== 'pendiente') return await this.terminar(trabajo);
       const conductor = reserva.viaje.conductor.billetera?.direccion;
       if (!conductor) throw new Error('CONDUCTOR_SIN_BILLETERA');
 
@@ -337,6 +334,142 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * HU-24: paga al conductor desde el escrow con la cuenta verificadora. A-09 en el servidor: solo una reserva
+   * `verificada`, y el escrow debe tenerla bloqueada para ese conductor y ese monto. Respuesta perdida o dos workers: el
+   * escrow ya dice `liberada` y se recupera el hash, sin enviar otra vez (CA-4). Éxito: movimiento `confirmado`,
+   * reserva `pagada`, viaje recalculado (CA-10) y auditoría `pago.liberado` (RN-6). Red caída: reintento (CA-6).
+   */
+  private async liberarReserva(
+    trabajo: Trabajo,
+    movimiento: MovimientoDeTrabajo,
+  ): Promise<boolean> {
+    const reservaId = movimiento.reservaId as string;
+    const { usuarioId, direccion } = movimiento.billetera;
+    const monto = movimiento.monto.toFixed(2);
+    const objetivo: Objetivo = {
+      accion: 'pago.liberacion.atascada',
+      entidad: 'reserva',
+      entidadId: reservaId,
+    };
+    try {
+      const reserva = await this.prisma.comoSuperAdmin((tx) =>
+        tx.reserva.findUniqueOrThrow({
+          where: { id: reservaId },
+          select: { estado: true, viajeId: true, organizacionId: true },
+        }),
+      );
+      // La alerta de RN-5 tras 5 intentos la ve la organización del viaje.
+      objetivo.organizacionId = reserva.organizacionId;
+      const cerrar = (accion: string, detalle: Record<string, unknown>) =>
+        this.cerrarSinPago(trabajo, movimiento, reserva.organizacionId, {
+          accion,
+          detalle,
+        });
+      // Otro worker ya la cerró: nada que hacer.
+      if (reserva.estado === 'pagada') return await this.terminar(trabajo);
+      if (reserva.estado !== 'verificada')
+        return await cerrar('pago.rechazado', { estado: reserva.estado });
+
+      const cadena = this.blockchain.cadena;
+      const idReserva = id(reservaId);
+      const escrow = await cadena.estadoReservaEscrow(idReserva);
+      const coincide =
+        escrow.conductor.toLowerCase() === direccion.toLowerCase() &&
+        escrow.monto === urcAUnidades(monto);
+      let hashTx: string;
+      if (escrow.estado === 'liberada' && coincide)
+        hashTx = await cadena.hashDeLiberacion(idReserva);
+      else if (escrow.estado === 'bloqueada' && coincide)
+        hashTx = await cadena.liberarReserva(
+          idReserva,
+          (movimiento.metadatos as { hashPrueba: string }).hashPrueba,
+        );
+      // Reembolsada, nunca bloqueada o para otro conductor: reintentar no lo arregla y pagar sería A-09.
+      else
+        return await cerrar('pago.liberacion.imposible', {
+          estadoEscrow: escrow.estado,
+          coincide,
+        });
+
+      await this.prisma.comoSuperAdmin(async (tx) => {
+        await this.movimientos.actualizarEstado(
+          movimiento.id,
+          'confirmado',
+          hashTx,
+          tx,
+        );
+        await tx.reserva.updateMany({
+          where: { id: reservaId, estado: 'verificada' },
+          data: { estado: 'pagada' },
+        });
+        await this.estadoViaje.recalcular(tx, reserva.viajeId);
+        await tx.trabajoOnchain.update({
+          where: { id: trabajo.id },
+          data: { estado: 'terminado', ultimoError: null },
+        });
+        await this.auditoria.registrar(
+          {
+            accion: 'pago.liberado',
+            entidad: 'reserva',
+            entidadId: reservaId,
+            resultado: 'ok',
+            actorId: usuarioId,
+            organizacionId: reserva.organizacionId,
+            detalle: { conductorId: usuarioId, monto, hashTx },
+          },
+          tx,
+        );
+      });
+      return true;
+    } catch (error) {
+      await this.registrarFalla(trabajo, objetivo, usuarioId, error);
+      return false;
+    }
+  }
+
+  private async terminar(trabajo: Trabajo): Promise<true> {
+    await this.prisma.trabajoOnchain.update({
+      where: { id: trabajo.id },
+      data: { estado: 'terminado', ultimoError: null },
+    });
+    return true;
+  }
+
+  /** Liberación que no debe hacerse: el movimiento falla sin hash, el trabajo termina y queda la alerta. */
+  private async cerrarSinPago(
+    trabajo: Trabajo,
+    movimiento: MovimientoDeTrabajo,
+    organizacionId: string,
+    alerta: { accion: string; detalle: Record<string, unknown> },
+  ): Promise<true> {
+    await this.prisma.comoSuperAdmin(async (tx) => {
+      await this.movimientos.actualizarEstado(
+        movimiento.id,
+        'fallido',
+        undefined,
+        tx,
+      );
+      await tx.trabajoOnchain.update({
+        where: { id: trabajo.id },
+        data: { estado: 'terminado', ultimoError: alerta.accion },
+      });
+      await this.auditoria.registrar(
+        {
+          accion: alerta.accion,
+          entidad: 'reserva',
+          entidadId: movimiento.reservaId as string,
+          resultado: 'fallo',
+          actorId: movimiento.billetera.usuarioId,
+          organizacionId,
+          detalle: alerta.detalle,
+        },
+        tx,
+      );
+    });
+    return true;
+  }
+
   /** Espera creciente hasta 1 h. Solo el tipo de error: el mensaje de ethers lleva la URL del nodo. */
   private async registrarFalla(
     trabajo: Trabajo,
@@ -368,6 +501,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
             entidadId: objetivo.entidadId,
             resultado: 'fallo',
             actorId: usuarioId,
+            organizacionId: objetivo.organizacionId,
             detalle: { intentos, motivo },
           },
           tx,

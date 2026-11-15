@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { Logger } from '@nestjs/common';
 import { AbiCoder, id, Wallet, zeroPadValue } from 'ethers';
 import {
   BlockchainService,
@@ -106,10 +107,22 @@ describe('crearCadena', () => {
     ['sin llave', {}],
     ['con RELAYER_LLAVE_PRIVADA', { RELAYER_LLAVE_PRIVADA: LLAVE }],
     ['con KMS_LLAVE_RELAYER_ID', { KMS_LLAVE_RELAYER_ID: 'alias/relayer' }],
+    // HU-24 CA-9 / A-12: la llave del verificador tampoco se acepta en producción.
+    ['con VERIFICADOR_LLAVE_PRIVADA', { VERIFICADOR_LLAVE_PRIVADA: LLAVE }],
   ])('en producción no arranca sin el firmante KMS: %s', (_, extra) => {
     expect(() =>
       crearCadena({ ...valido, ...extra, NODE_ENV: 'production' }),
     ).toThrow('firmante KMS');
+  });
+
+  it('A-09: rechaza la misma llave para relayer y verificador', () => {
+    expect(() =>
+      crearCadena({
+        ...valido,
+        RELAYER_LLAVE_PRIVADA: LLAVE,
+        VERIFICADOR_LLAVE_PRIVADA: LLAVE,
+      }),
+    ).toThrow('otra cuenta');
   });
 
   it('rechaza una DIRECCION_TOKEN_URC inválida en cualquier entorno', () => {
@@ -173,8 +186,37 @@ describe('CadenaSimulada · bloquear reserva', () => {
       pagador: pasajero.address,
       conductor,
       monto: 10n * URC,
+      hashPrueba: `0x${'00'.repeat(32)}`,
     });
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(10n * URC);
     expect(await cadena.hashDeBloqueo(ID_RESERVA)).toBe(hash);
+  });
+
+  it('HU-24: liberar paga al conductor desde el escrow, guarda el hash de la prueba y solo una vez', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    const prueba = `0x${'cd'.repeat(32)}`;
+    const hash = await cadena.liberarReserva(ID_RESERVA, prueba);
+    expect(await cadena.leerSaldo(conductor)).toBe(10n * URC);
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(0n);
+    expect(await cadena.estadoReservaEscrow(ID_RESERVA)).toMatchObject({
+      estado: 'liberada',
+      hashPrueba: prueba,
+    });
+    expect(await cadena.hashDeLiberacion(ID_RESERVA)).toBe(hash);
+    // Como el contrato: una segunda vez revierte con ReservaNoBloqueada y no paga.
+    await expect(cadena.liberarReserva(ID_RESERVA, prueba)).rejects.toThrow(
+      'ReservaNoBloqueada',
+    );
+    expect(await cadena.leerSaldo(conductor)).toBe(10n * URC);
+  });
+
+  it('HU-24: una reserva nunca bloqueada no se libera ni tiene hash de liberación', async () => {
+    const cadena = new CadenaSimulada();
+    await expect(
+      cadena.liberarReserva(ID_RESERVA, `0x${'cd'.repeat(32)}`),
+    ).rejects.toThrow('ReservaNoBloqueada');
+    await expect(cadena.hashDeLiberacion(ID_RESERVA)).rejects.toThrow();
   });
 
   it('repetir la misma reserva devuelve el mismo hash sin bloquear de nuevo', async () => {
@@ -518,6 +560,7 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
         pagador: DIRECCION,
         conductor: TOKEN,
         monto: 10n * URC,
+        hashPrueba: `0x${'00'.repeat(32)}`,
       });
       expect(nodo.llamadas[0].a?.toLowerCase()).toBe(ESCROW.toLowerCase());
     });
@@ -583,6 +626,74 @@ describe('CadenaReal contra un nodo JSON-RPC', () => {
     expect(
       new CadenaReal(url, TOKEN, 31337).exploradorTxUrl('0xabc'),
     ).toBeNull();
+  });
+
+  describe('HU-24: aviso de ROL_VERIFICADOR al arrancar', () => {
+    const conVerificador = () =>
+      new CadenaReal(url, TOKEN, 31337, undefined, undefined, ESCROW, LLAVE);
+    const avisos = () => vi.spyOn(Logger.prototype, 'warn');
+    afterEach(() => vi.restoreAllMocks());
+
+    it('pregunta hasRole(ROL_VERIFICADOR, verificador) al escrow', async () => {
+      nodo.resultados.eth_call = `0x${'1'.padStart(64, '0')}`;
+      expect(await conVerificador().verificadorTieneRol()).toBe(true);
+      const llamada = nodo.llamadas.find((l) => l.metodo === 'eth_call');
+      expect(llamada?.a?.toLowerCase()).toBe(ESCROW.toLowerCase());
+      expect(llamada?.datos).toContain(id('ROL_VERIFICADOR').slice(2));
+      expect(llamada?.datos?.toLowerCase()).toContain(
+        new Wallet(LLAVE).address.slice(2).toLowerCase(),
+      );
+    });
+
+    it('sin escrow no pregunta; con escrow y sin verificador es false sin preguntar', async () => {
+      expect(
+        await new CadenaReal(url, TOKEN, 31337).verificadorTieneRol(),
+      ).toBeNull();
+      expect(
+        await new CadenaReal(
+          url,
+          TOKEN,
+          31337,
+          undefined,
+          undefined,
+          ESCROW,
+        ).verificadorTieneRol(),
+      ).toBe(false);
+      expect(nodo.llamadas).toHaveLength(0);
+    });
+
+    it('sin el rol avisa; con el rol, no', async () => {
+      const warn = avisos();
+      nodo.resultados.eth_call = `0x${'0'.repeat(64)}`;
+      await new BlockchainService().avisarRolVerificador(conVerificador());
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('no tiene ROL_VERIFICADOR'),
+      );
+      warn.mockClear();
+      nodo.resultados.eth_call = `0x${'1'.padStart(64, '0')}`;
+      await new BlockchainService().avisarRolVerificador(conVerificador());
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('nodo caído: avisa sin la URL del nodo y no rechaza', async () => {
+      const warn = avisos();
+      const caida = new CadenaReal(
+        'http://127.0.0.1:9',
+        TOKEN,
+        31337,
+        500,
+        undefined,
+        ESCROW,
+        LLAVE,
+      );
+      await expect(
+        new BlockchainService().avisarRolVerificador(caida),
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('No se pudo comprobar ROL_VERIFICADOR'),
+      );
+      expect(String(warn.mock.calls[0][0])).not.toContain('127.0.0.1');
+    });
   });
 });
 

@@ -11,8 +11,8 @@ export class EstadoViajeService {
   /**
    * `publicado → reservado` con la primera reserva confirmada (HU-19 CA-13) y `reservado → en_curso` con el primer
    * abordaje verificado (HU-22 RN-7) y `en_curso → verificado` (HU-23 RN-10, D-23) cuando ninguna reserva queda sin
-   * bajar ni con la verificación fallida y alguna se verificó. En orden, así un viaje no salta estados. Devuelve si el
-   * viaje cambió.
+   * bajar ni con la verificación fallida y alguna se verificó, y `verificado → pagado` (HU-24). En orden, así un viaje no
+   * salta estados. Devuelve si el viaje cambió.
    */
   async recalcular(tx: Transaccion, viajeId: string): Promise<boolean> {
     // Una transacción a la vez por viaje: dos bajadas que terminan juntas, con READ COMMITTED, verían cada una la
@@ -48,7 +48,16 @@ export class EstadoViajeService {
           WHERE r.viaje_id = viajes.id
             AND r.estado IN ('pendiente', 'confirmada', 'abordada', 'verificacion_fallida')
         )`;
-    return reservado + enCurso + verificado > 0;
+    // HU-24 CA-10 (D-23): cuando ya no queda ninguna reserva sin pagar.
+    const pagado = await tx.$executeRaw`
+      UPDATE viajes SET estado = 'pagado'
+      WHERE id = ${viajeId}::uuid AND estado = 'verificado'
+        AND NOT EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id
+            AND r.estado IN ('pendiente', 'confirmada', 'abordada', 'verificada', 'verificacion_fallida')
+        )`;
+    return reservado + enCurso + verificado + pagado > 0;
   }
 }
 

@@ -35,8 +35,12 @@ const ABI_UNICOIN = [
 const ABI_ESCROW = [
   'function bloquear(bytes32 idReserva, address pagador, address conductor, uint256 monto, uint256 plazo, uint8 v, bytes32 r, bytes32 s)',
   'function reservas(bytes32) view returns (address pagador, address conductor, uint256 monto, uint8 estado, bytes32 hashPrueba)',
+  'function liberar(bytes32 idReserva, bytes32 hashPrueba)',
+  'function hasRole(bytes32 role, address account) view returns (bool)',
   'event ReservaBloqueada(bytes32 indexed idReserva, address indexed pagador, address indexed conductor, uint256 monto)',
+  'event PagoLiberado(bytes32 indexed idReserva, address indexed conductor, uint256 monto, bytes32 hashPrueba)',
   'error ReservaExistente(bytes32 idReserva)',
+  'error ReservaNoBloqueada(bytes32 idReserva)',
   'error DatosInvalidos()',
   'error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)',
   'error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)',
@@ -66,6 +70,8 @@ export interface ReservaEscrow {
   pagador: string;
   conductor: string;
   monto: bigint;
+  /** `bytes32` de la prueba de presencia que guardó `liberar`; ceros mientras no se libere. */
+  hashPrueba: string;
 }
 
 export interface DatosBloqueo {
@@ -105,6 +111,13 @@ export interface Cadena {
   estadoReservaEscrow(idReserva: string): Promise<ReservaEscrow>;
   /** Hash de la transacción que bloqueó la reserva, para cuando la respuesta se perdió. */
   hashDeBloqueo(idReserva: string): Promise<string>;
+  /**
+   * HU-24: paga al conductor desde el escrow, firmado por la cuenta verificadora (no el relayer), y guarda el hash de la
+   * prueba. Rechaza si el nodo falla o la reserva ya no está bloqueada: el worker relee el estado y reintenta.
+   */
+  liberarReserva(idReserva: string, hashPrueba: string): Promise<string>;
+  /** Hash de la transacción que liberó la reserva, para cuando la respuesta se perdió. */
+  hashDeLiberacion(idReserva: string): Promise<string>;
   exploradorUrl(direccion: string): string | null;
   exploradorTxUrl(hashTx: string): string | null;
 }
@@ -128,6 +141,7 @@ export class CadenaReal implements Cadena {
   private readonly proveedor: JsonRpcProvider;
   private readonly token: Contract | null;
   private readonly relayer: Wallet | null;
+  private readonly verificador: Wallet | null;
   private readonly escrow: Contract | null;
 
   constructor(
@@ -137,6 +151,7 @@ export class CadenaReal implements Cadena {
     tiempoMaximoMs = TIEMPO_MAXIMO_MS,
     llaveRelayer?: string,
     private readonly direccionEscrow = '',
+    llaveVerificador?: string,
   ) {
     const peticion = new FetchRequest(url);
     peticion.timeout = tiempoMaximoMs;
@@ -152,6 +167,9 @@ export class CadenaReal implements Cadena {
       : null;
     this.relayer = llaveRelayer
       ? new Wallet(llaveRelayer, this.proveedor)
+      : null;
+    this.verificador = llaveVerificador
+      ? new Wallet(llaveVerificador, this.proveedor)
       : null;
     this.escrow = direccionEscrow
       ? new Contract(direccionEscrow, ABI_ESCROW, this.proveedor)
@@ -254,15 +272,51 @@ export class CadenaReal implements Cadena {
 
   async estadoReservaEscrow(idReserva: string): Promise<ReservaEscrow> {
     if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
-    const [pagador, conductor, monto, estado] = (await this.escrow.reservas(
-      idReserva,
-    )) as [string, string, bigint, bigint];
+    const [pagador, conductor, monto, estado, hashPrueba] =
+      (await this.escrow.reservas(idReserva)) as [
+        string,
+        string,
+        bigint,
+        bigint,
+        string,
+      ];
     return {
       estado: ESTADOS_ESCROW[Number(estado)],
       pagador,
       conductor,
       monto,
+      hashPrueba,
     };
+  }
+
+  async liberarReserva(idReserva: string, hashPrueba: string): Promise<string> {
+    if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
+    if (!this.verificador)
+      throw new Error('VERIFICADOR_LLAVE_PRIVADA no está configurada');
+    const escrow = this.escrow.connect(this.verificador) as Contract;
+    // ponytail: una confirmación y sin reemplazar una transacción atascada, igual que la recarga (SP129).
+    const tx = await escrow.liberar(idReserva, hashPrueba);
+    await tx.wait(1, TIEMPO_RECIBO_MS);
+    return tx.hash as string;
+  }
+
+  /** HU-24 plan §7: el despliegue no otorga los roles. `null` sin escrow; `false` también sin cuenta verificadora. */
+  async verificadorTieneRol(): Promise<boolean | null> {
+    if (!this.escrow) return null;
+    if (!this.verificador) return false;
+    return (await this.escrow.hasRole(
+      id('ROL_VERIFICADOR'),
+      this.verificador.address,
+    )) as boolean;
+  }
+
+  hashDeLiberacion(idReserva: string): Promise<string> {
+    if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
+    return this.hashDeEvento(
+      this.escrow,
+      this.escrow.filters.PagoLiberado(idReserva),
+      'Reserva liberada sin su evento en el nodo',
+    );
   }
 
   hashDeBloqueo(idReserva: string): Promise<string> {
@@ -303,13 +357,25 @@ export class CadenaReal implements Cadena {
   }
 }
 
+const HASH_VACIO = `0x${'0'.repeat(64)}`;
+
 /** Solo pruebas y desarrollo: sin nodo, con los saldos en memoria; cada dirección empieza en 0 y un reinicio los borra. */
 export class CadenaSimulada implements Cadena {
+  /** Dirección del escrow simulado: guarda los pasajes bloqueados como saldo, igual que el contrato (A-10). */
+  static readonly ESCROW = '0x00000000000000000000000000000000000e5c20';
   protected saldos = new Map<string, bigint>();
   private readonly acunadas = new Map<string, string>();
   private readonly bloqueos = new Map<
     string,
-    { pagador: string; conductor: string; monto: bigint; hash: string }
+    {
+      pagador: string;
+      conductor: string;
+      monto: bigint;
+      hash: string;
+      estado: EstadoEscrow;
+      hashPrueba: string;
+      hashLiberacion?: string;
+    }
   >();
 
   constructor() {
@@ -331,7 +397,7 @@ export class CadenaSimulada implements Cadena {
     if (previa) return previa;
     const hash = id(`recarga-simulada:${idOrden}`);
     this.acunadas.set(idOrden, hash);
-    this.saldos.set(destino, (this.saldos.get(destino) ?? 0n) + monto);
+    this.sumar(destino, monto);
     return hash;
   }
 
@@ -349,13 +415,16 @@ export class CadenaSimulada implements Cadena {
     const saldo = this.saldos.get(pagador) ?? 0n;
     if (saldo < datos.monto)
       throw new ErrorBloqueoPermanente('ERC20InsufficientBalance');
-    this.saldos.set(pagador, saldo - datos.monto);
+    this.sumar(pagador, -datos.monto);
+    this.sumar(CadenaSimulada.ESCROW, datos.monto);
     const hash = id(`bloqueo-simulado:${datos.idReserva}`);
     this.bloqueos.set(datos.idReserva, {
       pagador,
       conductor: datos.conductor,
       monto: datos.monto,
       hash,
+      estado: 'bloqueada',
+      hashPrueba: HASH_VACIO,
     });
     return hash;
   }
@@ -364,12 +433,44 @@ export class CadenaSimulada implements Cadena {
     const b = this.bloqueos.get(idReserva);
     return b
       ? {
-          estado: 'bloqueada',
+          estado: b.estado,
           pagador: b.pagador,
           conductor: b.conductor,
           monto: b.monto,
+          hashPrueba: b.hashPrueba,
         }
-      : { estado: 'ninguno', pagador: '', conductor: '', monto: 0n };
+      : {
+          estado: 'ninguno',
+          pagador: '',
+          conductor: '',
+          monto: 0n,
+          hashPrueba: HASH_VACIO,
+        };
+  }
+
+  /** Como el contrato: solo una reserva bloqueada, una vez; si no, revierte con `ReservaNoBloqueada`. */
+  async liberarReserva(idReserva: string, hashPrueba: string): Promise<string> {
+    const b = this.bloqueos.get(idReserva);
+    if (b?.estado !== 'bloqueada')
+      throw Object.assign(new Error('ReservaNoBloqueada'), {
+        code: 'CALL_EXCEPTION',
+      });
+    b.estado = 'liberada';
+    b.hashPrueba = hashPrueba;
+    b.hashLiberacion = id(`liberacion-simulada:${idReserva}`);
+    this.sumar(CadenaSimulada.ESCROW, -b.monto);
+    this.sumar(b.conductor, b.monto);
+    return b.hashLiberacion;
+  }
+
+  async hashDeLiberacion(idReserva: string): Promise<string> {
+    const hash = this.bloqueos.get(idReserva)?.hashLiberacion;
+    if (!hash) throw new Error('Reserva sin liberar');
+    return hash;
+  }
+
+  private sumar(direccion: string, monto: bigint): void {
+    this.saldos.set(direccion, (this.saldos.get(direccion) ?? 0n) + monto);
   }
 
   async hashDeBloqueo(idReserva: string): Promise<string> {
@@ -411,10 +512,20 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
   // Vacía fuera de producción: contrato sin desplegar, cada bloqueo falla y se reintenta. Producción ya exige el KMS (SP129).
   if (escrow && !isAddress(escrow))
     throw new Error('DIRECCION_ESCROW no es una dirección válida');
-  // A-12: en producción la llave del relayer solo vive en KMS. Sin ese firmante (SP129) no se arranca.
+  // A-12: en producción las llaves del relayer y del verificador solo viven en KMS. Sin esos firmantes (SP129) no se arranca.
   if (produccion)
     throw new Error(
-      'Producción exige el firmante KMS del relayer (SP129); RELAYER_LLAVE_PRIVADA no se acepta',
+      'Producción exige el firmante KMS del relayer y el del verificador (SP129); RELAYER_LLAVE_PRIVADA y VERIFICADOR_LLAVE_PRIVADA no se aceptan',
+    );
+  // A-09: el relayer bloquea y el verificador libera; con la misma llave, una sola llave caliente haría las dos cosas.
+  if (
+    env.RELAYER_LLAVE_PRIVADA &&
+    env.VERIFICADOR_LLAVE_PRIVADA &&
+    new Wallet(env.RELAYER_LLAVE_PRIVADA).address ===
+      new Wallet(env.VERIFICADOR_LLAVE_PRIVADA).address
+  )
+    throw new Error(
+      'VERIFICADOR_LLAVE_PRIVADA debe ser otra cuenta que RELAYER_LLAVE_PRIVADA (A-09)',
     );
   return new CadenaReal(
     env.CADENA_RPC_URL,
@@ -423,6 +534,7 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
     undefined,
     env.RELAYER_LLAVE_PRIVADA,
     escrow,
+    env.VERIFICADOR_LLAVE_PRIVADA,
   );
 }
 
@@ -472,7 +584,28 @@ export class BlockchainService implements OnModuleInit {
 
   /** Una mala configuración detiene el arranque; en pruebas se elige al primer uso. */
   onModuleInit(): void {
-    if (process.env.NODE_ENV !== 'test') this.actual ??= crearCadena();
+    if (process.env.NODE_ENV === 'test') return;
+    this.actual ??= crearCadena();
+    if (this.actual instanceof CadenaReal)
+      void this.avisarRolVerificador(this.actual);
+  }
+
+  /**
+   * HU-24 plan §7: sin `ROL_VERIFICADOR` ningún pago se libera (quedan pendientes con su alerta). Solo aviso: un nodo
+   * caído al arrancar no detiene el backend. Sin el mensaje del error: el de ethers lleva la URL del nodo.
+   */
+  async avisarRolVerificador(cadena: CadenaReal): Promise<void> {
+    const registro = new Logger(BlockchainService.name);
+    try {
+      if ((await cadena.verificadorTieneRol()) === false)
+        registro.warn(
+          'La cuenta verificadora no tiene ROL_VERIFICADOR en el escrow (o falta VERIFICADOR_LLAVE_PRIVADA): los pagos quedarán pendientes (contracts/README.md)',
+        );
+    } catch (error) {
+      registro.warn(
+        `No se pudo comprobar ROL_VERIFICADOR (${(error as { code?: string }).code ?? 'sin código'})`,
+      );
+    }
   }
 
   get cadena(): Cadena {

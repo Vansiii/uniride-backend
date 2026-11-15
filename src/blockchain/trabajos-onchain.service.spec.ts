@@ -439,3 +439,191 @@ describe('TrabajosOnchainService · bloquear_reserva (HU-19)', () => {
     expect(c.tx.trabajoOnchain.update.mock.calls[0][0].data.intentos).toBe(1);
   });
 });
+
+describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
+  const CONDUCTOR = '0xC0nductor';
+  const HASH_PRUEBA = `0x${'cd'.repeat(32)}`;
+
+  function crearLiberacion(
+    o: { intentos?: number; estadoReserva?: string; escrow?: object } = {},
+  ) {
+    const tx = {
+      trabajoOnchain: { update: vi.fn() },
+      reserva: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const prisma = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 't1',
+            movimiento_id: 'm1',
+            operacion: 'liberar_reserva',
+            intentos: o.intentos ?? 0,
+          },
+        ])
+        .mockResolvedValue([]),
+      $transaction: vi.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
+      comoSuperAdmin: vi.fn(),
+      trabajoOnchain: { update: vi.fn() },
+      movimientoBilletera: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          id: 'm1',
+          reservaId: 'r1',
+          monto: new Prisma.Decimal('10.50'),
+          metadatos: { hashPrueba: HASH_PRUEBA },
+          billetera: { direccion: CONDUCTOR, usuarioId: 'c1' },
+        }),
+      },
+    };
+    prisma.comoSuperAdmin
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          estado: o.estadoReserva ?? 'verificada',
+          viajeId: 'v1',
+          organizacionId: 'o1',
+        }),
+      )
+      .mockImplementation((cb: (t: typeof tx) => unknown) => cb(tx));
+    const cadena = {
+      estadoReservaEscrow: vi.fn().mockResolvedValue({
+        estado: 'bloqueada',
+        conductor: CONDUCTOR.toLowerCase(),
+        monto: 10n * URC + URC / 2n,
+        ...o.escrow,
+      }),
+      liberarReserva: vi.fn().mockResolvedValue(HASH),
+      hashDeLiberacion: vi.fn().mockResolvedValue(HASH),
+    };
+    const movimientos = { actualizarEstado: vi.fn() };
+    const auditoria = { registrar: vi.fn() };
+    const estadoViaje = { recalcular: vi.fn() };
+    const servicio = new TrabajosOnchainService(
+      prisma as unknown as PrismaService,
+      { cadena } as unknown as BlockchainService,
+      movimientos as unknown as MovimientosService,
+      auditoria as unknown as AuditoriaService,
+      estadoViaje as unknown as EstadoViajeService,
+    );
+    return {
+      servicio,
+      prisma,
+      tx,
+      cadena,
+      movimientos,
+      auditoria,
+      estadoViaje,
+    };
+  }
+  type Caso = ReturnType<typeof crearLiberacion>;
+  const accion = (c: Caso) =>
+    c.auditoria.registrar.mock.calls.map(
+      (l) => (l[0] as { accion: string }).accion,
+    );
+
+  it('CA-1: libera con el hash de la prueba y en una Tx: confirmado, pagada, viaje recalculado y auditoría', async () => {
+    const c = crearLiberacion();
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.estadoReservaEscrow).toHaveBeenCalledWith(id('r1'));
+    expect(c.cadena.liberarReserva).toHaveBeenCalledWith(id('r1'), HASH_PRUEBA);
+    expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+      'm1',
+      'confirmado',
+      HASH,
+      c.tx,
+    );
+    expect(c.tx.reserva.updateMany).toHaveBeenCalledWith({
+      where: { id: 'r1', estado: 'verificada' },
+      data: { estado: 'pagada' },
+    });
+    expect(c.estadoViaje.recalcular).toHaveBeenCalledWith(c.tx, 'v1');
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: 'pago.liberado',
+        entidadId: 'r1',
+        organizacionId: 'o1',
+        detalle: { conductorId: 'c1', monto: '10.50', hashTx: HASH },
+      }),
+      c.tx,
+    );
+  });
+
+  it('CA-4: respuesta perdida, el escrow ya dice liberada: recupera el hash sin liberar otra vez', async () => {
+    const c = crearLiberacion({ escrow: { estado: 'liberada' } });
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.liberarReserva).not.toHaveBeenCalled();
+    expect(c.cadena.hashDeLiberacion).toHaveBeenCalledWith(id('r1'));
+    expect(accion(c)).toEqual(['pago.liberado']);
+  });
+
+  it.each(['confirmada', 'abordada', 'verificacion_fallida', 'pendiente'])(
+    'CA-3 / A-09: una reserva %s nunca se libera: sin cadena, movimiento fallido y pago.rechazado',
+    async (estadoReserva) => {
+      const c = crearLiberacion({ estadoReserva });
+      await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+      expect(c.cadena.estadoReservaEscrow).not.toHaveBeenCalled();
+      expect(c.cadena.liberarReserva).not.toHaveBeenCalled();
+      expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+        'm1',
+        'fallido',
+        undefined,
+        c.tx,
+      );
+      expect(c.tx.reserva.updateMany).not.toHaveBeenCalled();
+      expect(accion(c)).toEqual(['pago.rechazado']);
+    },
+  );
+
+  it.each([
+    ['reembolsada', { estado: 'reembolsada' }],
+    ['nunca bloqueada', { estado: 'ninguno', conductor: '', monto: 0n }],
+    ['para otro conductor', { conductor: '0xotro' }],
+    ['por otro monto', { monto: 99n * URC }],
+  ])(
+    'A-09: escrow %s: no paga, falla permanente con alerta',
+    async (_caso, escrow) => {
+      const c = crearLiberacion({ escrow });
+      await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+      expect(c.cadena.liberarReserva).not.toHaveBeenCalled();
+      expect(c.cadena.hashDeLiberacion).not.toHaveBeenCalled();
+      expect(accion(c)).toEqual(['pago.liberacion.imposible']);
+      expect(c.tx.trabajoOnchain.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { estado: 'terminado', ultimoError: 'pago.liberacion.imposible' },
+      });
+    },
+  );
+
+  it('CA-6: red caída: suma un intento, nada se marca y a los 5 queda la alerta', async () => {
+    const c = crearLiberacion({ intentos: 4 });
+    c.cadena.liberarReserva.mockRejectedValue(
+      Object.assign(new Error('caído https://nodo.test/clave-rpc'), {
+        code: 'SERVER_ERROR',
+      }),
+    );
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(0);
+    expect(c.movimientos.actualizarEstado).not.toHaveBeenCalled();
+    const datos = c.tx.trabajoOnchain.update.mock.calls[0][0].data;
+    expect(datos).toMatchObject({ intentos: 5, ultimoError: 'SERVER_ERROR' });
+    expect(datos.estado).toBeUndefined();
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: 'pago.liberacion.atascada',
+        entidadId: 'r1',
+        organizacionId: 'o1',
+      }),
+      c.tx,
+    );
+  });
+
+  it('dos workers: el otro ya la pagó; este termina sin tocar la cadena', async () => {
+    const c = crearLiberacion({ estadoReserva: 'pagada' });
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.estadoReservaEscrow).not.toHaveBeenCalled();
+    expect(c.auditoria.registrar).not.toHaveBeenCalled();
+    expect(c.prisma.trabajoOnchain.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: { estado: 'terminado', ultimoError: null },
+    });
+  });
+});
