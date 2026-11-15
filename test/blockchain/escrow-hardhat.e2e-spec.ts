@@ -310,4 +310,97 @@ describe.skipIf(!RPC)('EscrowUniRide real: bloquear con permit (e2e)', () => {
       expect(await cadena.leerSaldo(c)).toBe(10n * URC + URC / 2n);
     });
   });
+
+  describe('HU-20: reembolsar con cuenta verificadora (e2e Hardhat)', () => {
+    it('CA-2: reembolso al 100 % devuelve el monto íntegro al pasajero y recupera hash del evento', async () => {
+      const p = await pasajero(50n);
+      const c = conductor();
+      const idReserva = nuevaReserva();
+      const monto = 10n * URC;
+
+      await cadena.bloquearReserva({
+        idReserva,
+        llavePagador: p.privateKey,
+        conductor: c,
+        monto,
+      });
+
+      // Saldo restante del pasajero tras bloqueo: 40 URC
+      expect(await cadena.leerSaldo(p.address)).toBe(40n * URC);
+
+      // Reembolso del 100 % (10000 bps)
+      const hash = await cadena.reembolsarReserva({
+        idReserva,
+        porcentajePasajeroBps: 10_000,
+      });
+      expect(hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+
+      // Saldo restablecido al 100 %: 50 URC
+      expect(await cadena.leerSaldo(p.address)).toBe(50n * URC);
+      expect(await cadena.leerSaldo(c)).toBe(0n);
+
+      // El hash sale del evento emitido
+      expect(await cadena.hashDeReembolso(idReserva)).toBe(hash);
+
+      const estado = await cadena.estadoReservaEscrow(idReserva);
+      expect(estado.estado).toBe('reembolsada');
+    });
+
+    it('CA-3: reembolso al 50/50 reparte la mitad al pasajero y la mitad al conductor', async () => {
+      const p = await pasajero(50n);
+      const c = conductor();
+      const idReserva = nuevaReserva();
+      const monto = 10n * URC; // 10 URC -> 5 URC a cada uno
+
+      await cadena.bloquearReserva({
+        idReserva,
+        llavePagador: p.privateKey,
+        conductor: c,
+        monto,
+      });
+
+      expect(await cadena.leerSaldo(p.address)).toBe(40n * URC);
+
+      // Reembolso 50/50 (5000 bps)
+      const hash = await cadena.reembolsarReserva({
+        idReserva,
+        porcentajePasajeroBps: 5_000,
+      });
+      expect(hash).toMatch(/^0x[a-fA-F0-9]{64}$/);
+
+      // Pasajero recupera 5 URC (40 + 5 = 45 URC)
+      expect(await cadena.leerSaldo(p.address)).toBe(45n * URC);
+      // Conductor recibe 5 URC
+      expect(await cadena.leerSaldo(c)).toBe(5n * URC);
+
+      expect(await cadena.hashDeReembolso(idReserva)).toBe(hash);
+    });
+
+    it('A-09: reembolsar dos veces revierte en el contrato', async () => {
+      const p = await pasajero(50n);
+      const c = conductor();
+      const idReserva = nuevaReserva();
+      const monto = 10n * URC;
+
+      await cadena.bloquearReserva({
+        idReserva,
+        llavePagador: p.privateKey,
+        conductor: c,
+        monto,
+      });
+
+      await cadena.reembolsarReserva({
+        idReserva,
+        porcentajePasajeroBps: 10_000,
+      });
+
+      // Segunda llamada revierte porque ya no está bloqueada
+      await expect(
+        cadena.reembolsarReserva({
+          idReserva,
+          porcentajePasajeroBps: 10_000,
+        }),
+      ).rejects.toThrow();
+    });
+  });
 });
