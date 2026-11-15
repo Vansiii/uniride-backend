@@ -59,6 +59,42 @@ export class EstadoViajeService {
         )`;
     return reservado + enCurso + verificado + pagado > 0;
   }
+
+  /**
+   * HU-20 CA-5 (RN-4): Pasa el viaje a `cancelado` solo si está `publicado` o `reservado` y ninguna reserva llegó
+   * a `abordada`, `verificada` o `pagada`. Bloquea la fila del viaje para evitar carreras con el abordaje (CA-12).
+   */
+  async cancelar(tx: Transaccion, viajeId: string): Promise<boolean> {
+    await tx.$queryRaw`SELECT 1 FROM viajes WHERE id = ${viajeId}::uuid FOR UPDATE`;
+    const cancelado = await tx.$executeRaw`
+      UPDATE viajes SET estado = 'cancelado'
+      WHERE id = ${viajeId}::uuid
+        AND estado IN ('publicado', 'reservado')
+        AND NOT EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id
+            AND r.estado IN ('abordada', 'verificada', 'pagada')
+        )`;
+    return cancelado > 0;
+  }
+
+  /**
+   * HU-20 CA-6, CA-7 (RN-5): Pasa el viaje a `expirado` si está `publicado` o `reservado` y ninguna reserva quedó
+   * en `pendiente`, `abordada`, `verificada` o `pagada` (es decir, o no tenía reservas o todas expiraron o se cancelaron).
+   */
+  async expirar(tx: Transaccion, viajeId: string): Promise<boolean> {
+    await tx.$queryRaw`SELECT 1 FROM viajes WHERE id = ${viajeId}::uuid FOR UPDATE`;
+    const expirado = await tx.$executeRaw`
+      UPDATE viajes SET estado = 'expirado'
+      WHERE id = ${viajeId}::uuid
+        AND estado IN ('publicado', 'reservado')
+        AND NOT EXISTS (
+          SELECT 1 FROM reservas r
+          WHERE r.viaje_id = viajes.id
+            AND r.estado IN ('pendiente', 'abordada', 'verificada', 'pagada')
+        )`;
+    return expirado > 0;
+  }
 }
 
 /** Lo usan el worker de la cola on-chain (billetera) y las reservas, sin que un módulo dependa del otro. */

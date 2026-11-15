@@ -93,3 +93,59 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
     expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
   });
 });
+
+describe('EstadoViajeService.cancelar (HU-20 CA-5, RN-4)', () => {
+  const servicio = new EstadoViajeService();
+
+  it('pasa a cancelado si el viaje está publicado o reservado y devuelve true', async () => {
+    const c = crear(1);
+    await expect(servicio.cancelar(c.transaccion, 'v1')).resolves.toBe(true);
+    expect(sql(c)).toContain("SET estado = 'cancelado'");
+    expect(sql(c)).toContain("estado IN ('publicado', 'reservado')");
+    expect(sql(c)).toContain('NOT EXISTS');
+    expect(sql(c)).toContain("IN ('abordada', 'verificada', 'pagada')");
+  });
+
+  it('bloquea la fila del viaje con FOR UPDATE antes del update condicional', async () => {
+    const c = crear(0);
+    await servicio.cancelar(c.transaccion, 'v1');
+    expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
+      'FOR UPDATE',
+    );
+    expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
+  });
+
+  it('si no cumplió las condiciones (e.g. ya abordado o cancelado), devuelve false', async () => {
+    const c = crear(0);
+    await expect(servicio.cancelar(c.transaccion, 'v1')).resolves.toBe(false);
+  });
+});
+
+describe('EstadoViajeService.expirar (HU-20 CA-6, CA-7, RN-5)', () => {
+  const servicio = new EstadoViajeService();
+
+  it('pasa a expirado si el viaje está publicado o reservado y no hay reservas pendientes/activas', async () => {
+    const c = crear(1);
+    await expect(servicio.expirar(c.transaccion, 'v1')).resolves.toBe(true);
+    expect(sql(c)).toContain("SET estado = 'expirado'");
+    expect(sql(c)).toContain("estado IN ('publicado', 'reservado')");
+    expect(sql(c)).toContain('NOT EXISTS');
+    expect(sql(c)).toContain(
+      "IN ('pendiente', 'abordada', 'verificada', 'pagada')",
+    );
+  });
+
+  it('bloquea la fila del viaje con FOR UPDATE antes del update condicional', async () => {
+    const c = crear(0);
+    await servicio.expirar(c.transaccion, 'v1');
+    expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
+      'FOR UPDATE',
+    );
+    expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
+  });
+
+  it('si no cumplió las condiciones devuelve false', async () => {
+    const c = crear(0);
+    await expect(servicio.expirar(c.transaccion, 'v1')).resolves.toBe(false);
+  });
+});
