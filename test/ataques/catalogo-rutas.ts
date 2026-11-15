@@ -23,7 +23,9 @@ export const CATALOGO: Record<string, string> = {
   'POST /api/v1/viajes/:id/llave-trayecto': 'trayecto.llave', // HU-22
   'POST /api/v1/reservas/:id/abordaje': 'reserva.abordaje', // HU-22
   'POST /api/v1/reservas/:id/bajada': 'reserva.bajada', // HU-23
-  // Cancelar (HU-20) y retirar (HU-16) entran aquí al construirse.
+  'POST /api/v1/reservas/:id/cancelar': 'reserva.cancelar', // HU-20
+  'POST /api/v1/viajes/:id/cancelar': 'viaje.cancelar', // HU-20
+  // Retirar (HU-16) entra aquí al construirse.
 };
 
 export interface RutaRegistrada {

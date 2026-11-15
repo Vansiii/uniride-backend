@@ -40,13 +40,18 @@ import {
   ViajePublicadoDto,
 } from './dto/viaje.dto.js';
 import { ViajesService } from './viajes.service.js';
+import { CancelacionesService } from '../reservas/cancelaciones.service.js';
+import { ViajeCanceladoResultadoDto } from '../reservas/dto/reserva.dto.js';
 
 @ApiTags('viajes')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ type: ErrorDto, description: '`NO_AUTENTICADO`' })
 @Controller('viajes')
 export class ViajesController {
-  constructor(private readonly servicio: ViajesService) {}
+  constructor(
+    private readonly servicio: ViajesService,
+    private readonly cancelaciones: CancelacionesService,
+  ) {}
 
   /** La firma va al final: una petición que se rechazará por otro motivo no gasta su nonce. */
   @Post()
@@ -175,5 +180,39 @@ export class ViajesController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<DetalleViajeDto> {
     return this.servicio.detalle(organizacionId, id);
+  }
+
+  @Post(':id/cancelar')
+  @AccionSensible('viaje.cancelar', OrganizacionGuard, IdentidadVerificadaGuard)
+  @ApiOkResponse({
+    type: ViajeCanceladoResultadoDto,
+    description:
+      'Viaje cancelado y cada reserva confirmada pasa a cancelada con el 100 % reembolsado.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTENTICADO`, `FIRMA_DISPOSITIVO_INVALIDA` o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTORIZADO` (sin membresía aprobada) o `IDENTIDAD_NO_VERIFICADA`.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_ENCONTRADO`, también si es de otra organización o no eres su conductor.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description: '`NO_CANCELABLE`: viaje en curso, verificado o expirado.',
+  })
+  cancelar(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ViajeCanceladoResultadoDto> {
+    return this.cancelaciones.cancelarViaje(usuario.id, organizacionId, id);
   }
 }
