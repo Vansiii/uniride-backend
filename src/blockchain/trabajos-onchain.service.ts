@@ -97,7 +97,9 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
           ? await this.bloquearReserva(trabajo, movimiento)
           : trabajo.operacion === 'liberar_reserva'
             ? await this.liberarReserva(trabajo, movimiento)
-            : await this.acunarRecarga(trabajo, movimiento);
+            : trabajo.operacion === 'reembolsar_reserva'
+              ? await this.reembolsarReserva(trabajo, movimiento)
+              : await this.acunarRecarga(trabajo, movimiento);
       if (termino) terminados++;
     }
     return terminados;
@@ -428,6 +430,128 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * HU-20: procesa la devolución del pasaje desde el escrow con la cuenta verificadora (ROL_VERIFICADOR). Idempotente:
+   * si el escrow ya dice `reembolsada` recupera el hash sin enviar otra vez (CA-10). Éxito: movimientos `confirmado`
+   * (pasajero y, si aplica 50/50, compensación al conductor) y auditoría `reembolso.confirmado`. Red caída: reintento (CA-17).
+   */
+  private async reembolsarReserva(
+    trabajo: Trabajo,
+    movimiento: MovimientoDeTrabajo,
+  ): Promise<boolean> {
+    const reservaId = movimiento.reservaId as string;
+    const { usuarioId, direccion } = movimiento.billetera;
+    const metadatos = (movimiento.metadatos ?? {}) as {
+      porcentajePasajeroBps?: number;
+      montoConductor?: string;
+      motivo?: string;
+    };
+    const porcentajePasajeroBps = metadatos.porcentajePasajeroBps ?? 10_000;
+    const objetivo: Objetivo = {
+      accion: 'reembolso.atascado',
+      entidad: 'reserva',
+      entidadId: reservaId,
+    };
+    try {
+      const reserva = await this.prisma.comoSuperAdmin((tx) =>
+        tx.reserva.findUniqueOrThrow({
+          where: { id: reservaId },
+          select: {
+            estado: true,
+            monto: true,
+            viajeId: true,
+            organizacionId: true,
+          },
+        }),
+      );
+      objetivo.organizacionId = reserva.organizacionId;
+      const cerrar = (accion: string, detalle: Record<string, unknown>) =>
+        this.cerrarSinPago(trabajo, movimiento, reserva.organizacionId, {
+          accion,
+          detalle,
+        });
+
+      if (movimiento.estado === 'confirmado')
+        return await this.terminar(trabajo);
+      if (
+        reserva.estado !== 'cancelada' &&
+        reserva.estado !== 'expirada' &&
+        reserva.estado !== 'verificacion_fallida'
+      )
+        return await cerrar('reembolso.rechazado', { estado: reserva.estado });
+
+      const cadena = this.blockchain.cadena;
+      const idReserva = id(reservaId);
+      const escrow = await cadena.estadoReservaEscrow(idReserva);
+      const coincide =
+        escrow.pagador.toLowerCase() === direccion.toLowerCase() &&
+        escrow.monto === urcAUnidades(reserva.monto.toFixed(2));
+
+      let hashTx: string;
+      if (escrow.estado === 'reembolsada' && coincide)
+        hashTx = await cadena.hashDeReembolso(idReserva);
+      else if (escrow.estado === 'bloqueada' && coincide)
+        hashTx = await cadena.reembolsarReserva(
+          idReserva,
+          porcentajePasajeroBps,
+        );
+      else
+        return await cerrar('reembolso.imposible', {
+          estadoEscrow: escrow.estado,
+          coincide,
+        });
+
+      await this.prisma.comoSuperAdmin(async (tx) => {
+        await this.movimientos.actualizarEstado(
+          movimiento.id,
+          'confirmado',
+          hashTx,
+          tx,
+        );
+        const compensacion = await tx.movimientoBilletera.findFirst({
+          where: {
+            reservaId,
+            tipo: 'compensacion_cancelacion',
+            estado: 'pendiente',
+          },
+        });
+        if (compensacion) {
+          await this.movimientos.actualizarEstado(
+            compensacion.id,
+            'confirmado',
+            hashTx,
+            tx,
+          );
+        }
+        await tx.trabajoOnchain.update({
+          where: { id: trabajo.id },
+          data: { estado: 'terminado', ultimoError: null },
+        });
+        await this.auditoria.registrar(
+          {
+            accion: 'reembolso.confirmado',
+            entidad: 'reserva',
+            entidadId: reservaId,
+            resultado: 'ok',
+            actorId: usuarioId,
+            organizacionId: reserva.organizacionId,
+            detalle: {
+              pasajeroId: usuarioId,
+              monto: movimiento.monto.toFixed(2),
+              porcentajePasajeroBps,
+              hashTx,
+            },
+          },
+          tx,
+        );
+      });
+      return true;
+    } catch (error) {
+      await this.registrarFalla(trabajo, objetivo, usuarioId, error);
+      return false;
+    }
+  }
+
   private async terminar(trabajo: Trabajo): Promise<true> {
     await this.prisma.trabajoOnchain.update({
       where: { id: trabajo.id },
@@ -436,7 +560,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  /** Liberación que no debe hacerse: el movimiento falla sin hash, el trabajo termina y queda la alerta. */
+  /** Liberación o reembolso que no debe hacerse: el movimiento falla sin hash, el trabajo termina y queda la alerta. */
   private async cerrarSinPago(
     trabajo: Trabajo,
     movimiento: MovimientoDeTrabajo,
@@ -450,6 +574,23 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
         undefined,
         tx,
       );
+      if (trabajo.operacion === 'reembolsar_reserva' && movimiento.reservaId) {
+        const compensacion = await tx.movimientoBilletera?.findFirst({
+          where: {
+            reservaId: movimiento.reservaId,
+            tipo: 'compensacion_cancelacion',
+            estado: 'pendiente',
+          },
+        });
+        if (compensacion) {
+          await this.movimientos.actualizarEstado(
+            compensacion.id,
+            'fallido',
+            undefined,
+            tx,
+          );
+        }
+      }
       await tx.trabajoOnchain.update({
         where: { id: trabajo.id },
         data: { estado: 'terminado', ultimoError: alerta.accion },
