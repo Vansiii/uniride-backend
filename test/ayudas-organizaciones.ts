@@ -76,8 +76,9 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba})`,
     );
-    // HU-22: la presencia apunta a reservas, viajes y dispositivos; todo es de una organización de prueba.
+    // HU-22 y HU-23: la presencia apunta a reservas, viajes, usuarios y dispositivos; todo es de una organización de prueba.
     for (const tabla of [
+      'puntos_gps',
       'pruebas_presencia',
       'desafios_handshake',
       'llaves_trayecto',

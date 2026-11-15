@@ -1,6 +1,6 @@
 import { PrismaService } from '../../src/comun/prisma.service.js';
 import { prepararEntorno, type Entorno } from '../ayudas-organizaciones.js';
-import { ayudasPresencia } from '../presencia/ayudas-presencia.js';
+import { ayudasPresencia, traza } from '../presencia/ayudas-presencia.js';
 
 /** HU-22 CA-9, CA-10 · A-13: sin reserva propia y confirmada no se aborda; lo de otra organización no existe. */
 describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () => {
@@ -99,5 +99,81 @@ describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () =>
       }));
     expect(await cuenta(a)).toEqual({ llaves: 0, desafios: 0, pruebas: 0 });
     expect(await cuenta(b)).toEqual({ llaves: 2, desafios: 1, pruebas: 1 });
+  });
+
+  it('HU-23 CA-14: bajada sobre una reserva de otra organización = reserva inexistente', async () => {
+    const enB = await h.enViaje(b);
+    const pb = enB.s.pasajeros[0];
+    const enA = await h.enViaje(a);
+    const pa = enA.s.pasajeros[0];
+    const nonceA = await h.codigoBajada(enA.s, enA.conductor);
+    const ajena = await h.bajar(pa, pb.reservaId, nonceA).expect(409);
+    const inexistente = await h
+      .bajar(
+        pa,
+        '00000000-0000-4000-8000-000000000000',
+        await h.codigoBajada(enA.s, enA.conductor),
+      )
+      .expect(409);
+    expect(ajena.body).toEqual(inexistente.body);
+    expect(ajena.body.codigo).toBe('SIN_RESERVA');
+    expect(await h.estadoReserva(pb.reservaId)).toBe('abordada');
+  });
+
+  it('HU-23 CA-14: posiciones con la llave de A sobre el viaje o la reserva de B se rechazan sin guardar nada', async () => {
+    const enB = await h.enViaje(b);
+    const pb = enB.s.pasajeros[0];
+    const enA = await h.enViaje(a);
+    const pa = enA.s.pasajeros[0];
+    await h
+      .posiciones(
+        pa.token,
+        h.rutaPasajero(pb.reservaId),
+        enA.pasajeros[0],
+        traza(1),
+      )
+      .expect(401);
+    await h
+      .posiciones(
+        enA.s.conductor.token,
+        h.rutaConductor(enB.s.viajeId),
+        enA.conductor,
+        traza(1),
+      )
+      .expect(401);
+    // La llave de B usada con el token de A (otra organización): tampoco.
+    await h
+      .posiciones(
+        pa.token,
+        h.rutaPasajero(pb.reservaId),
+        enB.pasajeros[0],
+        traza(1),
+      )
+      .expect(401);
+    const { rows } = await e.bd.query(
+      `SELECT 1 FROM puntos_gps WHERE viaje_id = $1`,
+      [enB.s.viajeId],
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it('HU-23: con el rol de la API, en el contexto de A no se ven los puntos de B', async () => {
+    const enB = await h.enViaje(b);
+    const pb = enB.s.pasajeros[0];
+    await h
+      .posiciones(
+        pb.token,
+        h.rutaPasajero(pb.reservaId),
+        enB.pasajeros[0],
+        traza(2),
+      )
+      .expect(202);
+    const prisma = e.app.get(PrismaService);
+    const cuenta = (org: string) =>
+      prisma.enOrganizacion(org, (tx) =>
+        tx.puntoGps.count({ where: { viajeId: enB.s.viajeId } }),
+      );
+    expect(await cuenta(a)).toBe(0);
+    expect(await cuenta(b)).toBe(2);
   });
 });

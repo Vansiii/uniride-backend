@@ -105,7 +105,17 @@ describe('HU-22 · verificación de abordaje (e2e)', () => {
     const { body } = await h.abordar(p, p.reservaId, nonce).expect(200);
     expect(performance.now() - inicio).toBeLessThan(3_000);
 
-    expect(body).toEqual({ estado: 'abordada', yaVerificado: false });
+    expect(body).toEqual({
+      estado: 'abordada',
+      yaVerificado: false,
+      llaveTrayectoId: expect.any(String),
+    });
+    // HU-23: el id es la llave vigente del pasajero, la que firma sus posiciones.
+    const vigente = await e.bd.query(
+      `SELECT id FROM llaves_trayecto WHERE reserva_id = $1 AND revocada_en IS NULL`,
+      [p.reservaId],
+    );
+    expect(vigente.rows).toEqual([{ id: body.llaveTrayectoId }]);
     expect(await h.estadoReserva(p.reservaId)).toBe('abordada');
     expect(await h.estadoViaje(s.viajeId)).toBe('en_curso');
     const [prueba] = await h.pruebas(p.reservaId);
@@ -192,7 +202,11 @@ describe('HU-22 · verificación de abordaje (e2e)', () => {
     const { body } = await h
       .abordar(p, p.reservaId, await h.codigo(s, l))
       .expect(200);
-    expect(body).toEqual({ estado: 'abordada', yaVerificado: true });
+    expect(body).toEqual({
+      estado: 'abordada',
+      yaVerificado: true,
+      llaveTrayectoId: expect.any(String),
+    });
     expect(await h.pruebas(p.reservaId)).toHaveLength(1);
   });
 

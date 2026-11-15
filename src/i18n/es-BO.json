@@ -104,5 +104,15 @@
   "presencia.abordaje.sin_reservas": "Este viaje todavía no tiene pasajeros confirmados.",
   "presencia.abordaje.fuera_de_ventana": "Fuera del horario de abordaje.",
   "presencia.abordaje.senal_gps": "La señal de ubicación es débil. Busca un lugar abierto e inténtalo de nuevo.",
-  "presencia.abordaje.servicio_no_disponible": "No pudimos verificar el teléfono en este momento. Inténtalo de nuevo."
+  "presencia.abordaje.servicio_no_disponible": "No pudimos verificar el teléfono en este momento. Inténtalo de nuevo.",
+  "presencia.bajada.codigo_invalido": "Ese código ya no sirve. Escanea el código de bajada que muestra ahora el conductor.",
+  "presencia.bajada.distancia": "Estás demasiado lejos del conductor para confirmar la bajada.",
+  "presencia.bajada.ubicacion_simulada": "No pudimos confirmar tu ubicación.",
+  "presencia.bajada.integridad": "Este teléfono no puede verificar viajes.",
+  "presencia.bajada.sin_reserva": "No tienes una reserva en este viaje.",
+  "presencia.bajada.no_abordada": "Esta reserva no está en viaje: primero confirma el abordaje.",
+  "presencia.bajada.senal_gps": "La señal de ubicación es débil. Busca un lugar abierto e inténtalo de nuevo.",
+  "presencia.bajada.servicio_no_disponible": "No pudimos verificar el teléfono en este momento. Inténtalo de nuevo.",
+  "presencia.trayecto.viaje_no_en_curso": "Este viaje no está en curso o ya no lleva pasajeros.",
+  "presencia.trayecto.no_abordada": "Esta reserva ya no está en viaje: dejamos de compartir tu ubicación."
 }

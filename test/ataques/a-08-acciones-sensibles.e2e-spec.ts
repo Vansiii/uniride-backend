@@ -151,6 +151,30 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
         },
       };
     },
+    'reserva.bajada': async () => {
+      const viaje = await pr.enViaje(organizacionId);
+      const p = viaje.s.pasajeros[0];
+      const nonce = await pr.codigoBajada(viaje.s, viaje.conductor);
+      return {
+        usuarioId: p.id,
+        token: p.token,
+        dispositivo: p.dispositivo,
+        ruta: `/api/v1/reservas/${p.reservaId}/bajada`,
+        cuerpo: {
+          nonce,
+          posicion: posicion({ lat: ENCUENTRO.lat + A_10_M }),
+          tokenIntegridad: INTEGRO,
+        },
+        exito: 200,
+        auditoria: 'reserva.bajada',
+        sinEfecto: async () => {
+          expect(await pr.estadoReserva(p.reservaId)).toBe('abordada');
+          expect(
+            (await pr.pruebas(p.reservaId)).map((x) => x.resultado),
+          ).toEqual(['aceptada']);
+        },
+      };
+    },
   };
 
   beforeAll(async () => {

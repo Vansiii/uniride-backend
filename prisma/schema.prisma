@@ -38,6 +38,7 @@ model Usuario {
   viajes         Viaje[]
   reservas       Reserva[]
   llavesTrayecto LlaveTrayecto[]
+  puntosGps      PuntoGps[]
 
   @@map("usuarios")
 }
@@ -93,6 +94,7 @@ model Organizacion {
   reservas     Reserva[]
   llavesTrayecto LlaveTrayecto[]
   desafios       DesafioHandshake[]
+  puntosGps      PuntoGps[]
   pruebas        PruebaPresencia[]
 
   @@map("organizaciones")
@@ -231,6 +233,7 @@ model Viaje {
   reservas     Reserva[]
   llavesTrayecto LlaveTrayecto[]
   desafios       DesafioHandshake[]
+  puntosGps      PuntoGps[]
 
   @@index([organizacionId, estado, fechaHoraSalida, cuposDisponibles], map: "idx_viajes_busqueda")
   @@index([conductorId, fechaHoraSalida])
@@ -394,6 +397,8 @@ model Reserva {
   estado            String   @default("pendiente")
   claveIdempotencia String   @unique @map("clave_idempotencia")
   motivo            String?
+  /// CA-15: pares, coincidencia, velocidad máxima y motivo de la evaluación del trayecto (HU-23).
+  evaluacion        Json?
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn     DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
@@ -479,4 +484,27 @@ model PruebaPresencia {
   desafio      DesafioHandshake? @relation(fields: [desafioId], references: [id], onDelete: Restrict)
 
   @@map("pruebas_presencia")
+}
+
+// --- HU-23: seguimiento del trayecto (organizacion_id + RLS, A-13) ---
+
+/// RN-1: una posición cada 15 s por persona y viaje. RN-8: solo para verificar. Solo inserción.
+model PuntoGps {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  viajeId        String   @map("viaje_id") @db.Uuid
+  usuarioId      String   @map("usuario_id") @db.Uuid
+  lat            Float
+  lng            Float
+  precisionM     Float    @map("precision_m")
+  tomadaEn       DateTime @map("tomada_en") @db.Timestamptz(3)
+  simulada       Boolean
+  recibidoEn     DateTime @default(now()) @map("recibido_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje        @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@unique([viajeId, usuarioId, tomadaEn], map: "puntos_gps_viaje_usuario_tomada_key")
+  @@map("puntos_gps")
 }

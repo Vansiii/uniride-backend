@@ -16,6 +16,7 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiAcceptedResponse,
   ApiOkResponse,
   ApiServiceUnavailableResponse,
   ApiTags,
@@ -41,10 +42,14 @@ import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import {
   AbordajeDto,
   AbordarDto,
+  BajadaDto,
   CrearDesafioDto,
   DesafioDto,
+  EncuentroDto,
   EstadoDesafioDto,
   LlaveTrayectoCreadaDto,
+  PosicionesAceptadasDto,
+  PosicionesDto,
   RegistrarLlaveTrayectoDto,
 } from './dto/presencia.dto.js';
 import { PresenciaService } from './presencia.service.js';
@@ -52,7 +57,10 @@ import { PresenciaService } from './presencia.service.js';
 const SERVICIO_CAIDO =
   '`SERVICIO_NO_DISPONIBLE`: Play Integrity no respondió; reintentar.';
 
-/** HU-22: verificación de abordaje. El `X-Nonce` de la petición firmada es también el nonce de Play Integrity (RN-5). */
+/**
+ * HU-22: verificación de abordaje; HU-23: seguimiento del trayecto y bajada. El `X-Nonce` de la petición firmada es
+ * también el nonce de Play Integrity (RN-5).
+ */
 @ApiTags('presencia')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ type: ErrorDto, description: '`NO_AUTENTICADO`' })
@@ -141,7 +149,8 @@ export class PresenciaController {
   })
   @ApiConflictResponse({
     type: ErrorDto,
-    description: '`FUERA_DE_VENTANA` (trae `desde` y `hasta`).',
+    description:
+      '`FUERA_DE_VENTANA` (abordaje; trae `desde` y `hasta`) o `VIAJE_NO_EN_CURSO` (bajada).',
   })
   @ApiUnprocessableEntityResponse({
     type: ErrorDto,
@@ -245,6 +254,140 @@ export class PresenciaController {
       dispositivoId,
       nonce,
       dto,
+    );
+  }
+
+  @Post('reservas/:id/bajada')
+  @HttpCode(200)
+  @AccionSensible(
+    'reserva.bajada',
+    OrganizacionGuard,
+    CuentaActivaGuard,
+    IdentidadVerificadaGuard,
+  )
+  @ApiOkResponse({
+    type: BajadaDto,
+    description:
+      'HU-23: el mismo encuentro que el abordaje con el código de bajada; aceptado, se evalúan las dos trayectorias y la reserva queda `verificada` o `verificacion_fallida` con su motivo (definitivo). Repetirlo responde `yaVerificado`.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description: '`VALIDACION_FALLIDA`.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description: '`FIRMA_DISPOSITIVO_INVALIDA` o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTORIZADO`, `CUENTA_SUSPENDIDA` o `IDENTIDAD_NO_VERIFICADA`.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`CODIGO_INVALIDO` (usado, vencido, de abordaje o de otra organización), `SIN_RESERVA` o `RESERVA_NO_ABORDADA`.',
+  })
+  @ApiUnprocessableEntityResponse({
+    type: ErrorDto,
+    description:
+      '`DISTANCIA` (trae `distanciaM`), `UBICACION_SIMULADA`, `SENAL_GPS` o `DISPOSITIVO_NO_INTEGRO`. El código queda gastado y la reserva sigue `abordada`.',
+  })
+  @ApiServiceUnavailableResponse({
+    type: ErrorDto,
+    description: SERVICIO_CAIDO,
+  })
+  bajar(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Headers('x-nonce') nonce: string,
+    @Param('id', ParseUUIDPipe) reservaId: string,
+    @Body() dto: EncuentroDto,
+  ): Promise<BajadaDto> {
+    return this.servicio.bajar(
+      usuario.id,
+      organizacionId,
+      reservaId,
+      nonce,
+      dto,
+    );
+  }
+
+  @Post('viajes/:id/posiciones')
+  @HttpCode(202)
+  @RequiereFirmaTrayecto()
+  @UseGuards(CuentaActivaGuard)
+  @ApiAcceptedResponse({
+    type: PosicionesAceptadasDto,
+    description:
+      'HU-23: posiciones del conductor cada 15 s con su llave de trayecto, sin huella (CA-1), también las guardadas sin señal (CA-2).',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`FIRMA_TRAYECTO_INVALIDA` (llave ajena, de pasajero, de otro viaje o revocada) o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO` o `CUENTA_SUSPENDIDA`.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_EN_CURSO`: el viaje no está en curso o ya no lleva a nadie a bordo.',
+  })
+  posicionesConductor(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @LlaveTrayectoActual() llave: LlaveTrayectoFirmante,
+    @Param('id', ParseUUIDPipe) viajeId: string,
+    @Body() dto: PosicionesDto,
+  ): Promise<PosicionesAceptadasDto> {
+    return this.servicio.posicionesConductor(
+      usuario.id,
+      organizacionId,
+      viajeId,
+      llave,
+      dto.puntos,
+    );
+  }
+
+  @Post('reservas/:id/posiciones')
+  @HttpCode(202)
+  @RequiereFirmaTrayecto()
+  @UseGuards(CuentaActivaGuard)
+  @ApiAcceptedResponse({
+    type: PosicionesAceptadasDto,
+    description:
+      'HU-23: posiciones del pasajero entre su abordaje y su bajada, con la llave de trayecto de esa reserva.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`FIRMA_TRAYECTO_INVALIDA` (llave ajena, del conductor, de otra reserva o revocada) o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO` o `CUENTA_SUSPENDIDA`.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`RESERVA_NO_ABORDADA`: todavía no subió o ya bajó (CA-12); la app deja de enviar.',
+  })
+  posicionesPasajero(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @LlaveTrayectoActual() llave: LlaveTrayectoFirmante,
+    @Param('id', ParseUUIDPipe) reservaId: string,
+    @Body() dto: PosicionesDto,
+  ): Promise<PosicionesAceptadasDto> {
+    return this.servicio.posicionesPasajero(
+      usuario.id,
+      organizacionId,
+      reservaId,
+      llave,
+      dto.puntos,
     );
   }
 }
