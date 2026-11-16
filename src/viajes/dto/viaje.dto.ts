@@ -6,6 +6,7 @@ import {
   IsISO8601,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -112,6 +113,18 @@ export class BuscarViajesDto {
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/,
   )
   horaSalida!: string;
+
+  @ApiProperty({
+    required: false,
+    example: 'UAGRM',
+    maxLength: 100,
+    description:
+      'Filtro opcional por destino para búsqueda por voz (RN-3). Texto normalizado en el servidor.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  destino?: string;
 }
 
 export class LimitesViajeDto {

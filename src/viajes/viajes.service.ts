@@ -43,6 +43,40 @@ const MAXIMO_RESULTADOS = 50;
 const nombreDePila = (nombreCompleto: string) =>
   nombreCompleto.trim().split(/\s+/)[0];
 
+const ARTICULOS_DESTINO = new Set([
+  'la',
+  'el',
+  'los',
+  'las',
+  'al',
+  'a',
+  'de',
+  'del',
+]);
+
+/**
+ * RN-3: normaliza el texto de búsqueda por destino quitando tildes, caracteres especiales
+ * y palabras vacías/artículos para coincidencia parcial de cada palabra en PostgreSQL.
+ */
+export function normalizarPalabrasDestino(texto?: string): string[] {
+  if (!texto) return [];
+  const normalizado = texto
+    .toLowerCase()
+    .replace(/[áä]/g, 'a')
+    .replace(/[éë]/g, 'e')
+    .replace(/[íï]/g, 'i')
+    .replace(/[óö]/g, 'o')
+    .replace(/[úü]/g, 'u')
+    .replace(/[^a-z0-9ñ ]/g, ' ')
+    .trim();
+
+  if (!normalizado) return [];
+
+  return normalizado
+    .split(/\s+/)
+    .filter((palabra) => palabra.length > 0 && !ARTICULOS_DESTINO.has(palabra));
+}
+
 interface FilaBusqueda {
   id: string;
   origen_nombre: string;
@@ -245,7 +279,7 @@ export class ViajesService {
   async buscar(
     organizacionId: string,
     usuarioId: string,
-    { origenLat: lat, origenLng: lng, horaSalida }: BuscarViajesDto,
+    { origenLat: lat, origenLng: lng, horaSalida, destino }: BuscarViajesDto,
   ): Promise<ViajeEncontradoDto[]> {
     if (!(lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180))
       throw new ErrorNegocio(
@@ -265,6 +299,15 @@ export class ViajesService {
       return [];
     const desde = new Date(hora - VENTANA_BUSQUEDA_MS);
     const hasta = new Date(hora + VENTANA_BUSQUEDA_MS);
+
+    const palabrasDestino = normalizarPalabrasDestino(destino);
+    const filtroDestino =
+      palabrasDestino.length > 0
+        ? Prisma.sql`AND NOT EXISTS (
+            SELECT 1 FROM unnest(ARRAY[${Prisma.join(palabrasDestino)}]::text[]) p
+            WHERE translate(lower(v.destino_nombre), 'áéíóúü', 'aeiouu') NOT LIKE '%' || p || '%'
+          )`
+        : Prisma.empty;
 
     const filas = await this.prisma.enOrganizacion(
       organizacionId,
@@ -292,6 +335,7 @@ export class ViajesService {
           AND u.suspendida_en IS NULL
           AND v.conductor_id <> ${usuarioId}::uuid
           AND d.km <= ${RADIO_BUSQUEDA_KM}
+          ${filtroDestino}
         ORDER BY v.fecha_hora_salida, d.km
         LIMIT ${MAXIMO_RESULTADOS}`,
     );

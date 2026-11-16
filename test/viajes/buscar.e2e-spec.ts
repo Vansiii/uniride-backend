@@ -355,4 +355,89 @@ describe('HU-18 · buscar viajes (e2e)', () => {
         .expect(200);
     });
   });
+
+  describe('HU-27 RN-3 · filtro por destino para voz', () => {
+    it('filtra por destino con normalización de tildes y artículos', async () => {
+      const lat = nuevaLat();
+      const { id: uagrmId, fechaHoraSalida } = await publicarEn(lat, {
+        destinoNombre: 'UAGRM, Módulos',
+      });
+      const { id: otraId } = await publicarEn(lat, {
+        destinoNombre: 'Parque Urbano Central',
+      });
+
+      // Búsqueda con "a la UAGRM": solo aparece el viaje a UAGRM
+      const rUagrm = await v
+        .buscar(pasajero, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+          destino: 'a la UAGRM',
+        })
+        .expect(200);
+      expect(ids(rUagrm)).toEqual([uagrmId]);
+
+      // Búsqueda con tilde "módulos": coincide con "Módulos"
+      const rModulos = await v
+        .buscar(pasajero, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+          destino: 'módulos',
+        })
+        .expect(200);
+      expect(ids(rModulos)).toEqual([uagrmId]);
+
+      // Búsqueda con artículos o sin palabras útiles: aparecen ambos como en HU-18
+      const rTodos = await v
+        .buscar(pasajero, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+          destino: 'la',
+        })
+        .expect(200);
+      expect(ids(rTodos)).toContain(uagrmId);
+      expect(ids(rTodos)).toContain(otraId);
+
+      // Destino que no coincide con ninguno: lista vacía
+      const rVacio = await v
+        .buscar(pasajero, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+          destino: 'Viru Viru',
+        })
+        .expect(200);
+      expect(ids(rVacio)).toEqual([]);
+    });
+
+    it('destino con comodines (% y _) se limpian y no rompen la consulta', async () => {
+      const lat = nuevaLat();
+      const { id, fechaHoraSalida } = await publicarEn(lat, {
+        destinoNombre: 'UAGRM Campus',
+      });
+      const r = await v
+        .buscar(pasajero, {
+          origenLat: lat,
+          origenLng: lngBase,
+          horaSalida: fechaHoraSalida,
+          destino: '%_UAGRM_%',
+        })
+        .expect(200);
+      expect(ids(r)).toEqual([id]);
+    });
+
+    it('destino con más de 100 caracteres da 400 VALIDACION_FALLIDA', async () => {
+      const r = await v
+        .buscar(pasajero, {
+          origenLat: '-17',
+          origenLng: '-63',
+          horaSalida: enMs(3 * HORA_MS),
+          destino: 'a'.repeat(101),
+        })
+        .expect(400);
+      expect(r.body.codigo).toBe('VALIDACION_FALLIDA');
+    });
+  });
 });
