@@ -21,4 +21,4 @@ import { VencimientosService } from './vencimientos.service.js';
   providers: [ReservasService, CancelacionesService, VencimientosService],
   exports: [ReservasService, CancelacionesService, VencimientosService],
 })
-export class ReservasModule {}
+export class ReservasModule { }

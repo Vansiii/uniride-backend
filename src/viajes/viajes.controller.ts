@@ -51,7 +51,7 @@ export class ViajesController {
   constructor(
     private readonly servicio: ViajesService,
     private readonly cancelaciones: CancelacionesService,
-  ) {}
+  ) { }
 
   /** La firma va al final: una petición que se rechazará por otro motivo no gasta su nonce. */
   @Post()
@@ -183,7 +183,11 @@ export class ViajesController {
   }
 
   @Post(':id/cancelar')
-  @AccionSensible('viaje.cancelar', OrganizacionGuard, IdentidadVerificadaGuard)
+  @AccionSensible(
+    'viaje.cancelar',
+    OrganizacionGuard,
+    IdentidadVerificadaGuard,
+  )
   @ApiOkResponse({
     type: ViajeCanceladoResultadoDto,
     description:

@@ -133,7 +133,7 @@ export class PresenciaService {
     private readonly estadoViaje: EstadoViajeService,
     private readonly viajes: ViajesService,
     private readonly movimientos: MovimientosService,
-  ) {}
+  ) { }
 
   /** CA-1: el conductor registra su llave de trayecto con huella (la petición) e integridad (RN-5). */
   async registrarLlaveConductor(
