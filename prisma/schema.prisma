@@ -387,7 +387,7 @@ model CorreoSaliente {
 // --- HU-19: reserva con escrow ---
 
 /// Dato institucional: lleva `organizacion_id` y RLS (A-13). El monto lo fija el servidor con el precio del viaje.
-/// Estados (D-23): pendiente → confirmada → abordada → verificada → pagada; además fallida y verificacion_fallida.
+/// Estados (D-23, HU-20): pendiente → confirmada → abordada → verificada → pagada; además fallida, verificacion_fallida, cancelada y expirada.
 model Reserva {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizacionId    String   @map("organizacion_id") @db.Uuid

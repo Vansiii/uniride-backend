@@ -211,6 +211,54 @@ describe('CadenaSimulada · bloquear reserva', () => {
     expect(await cadena.leerSaldo(conductor)).toBe(10n * URC);
   });
 
+  it('HU-20: reembolsa al 100 % y devuelve todo el saldo al pasajero', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(40n * URC);
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(10n * URC);
+
+    const hash = await cadena.reembolsarReserva(ID_RESERVA, 10_000);
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(50n * URC);
+    expect(await cadena.leerSaldo(conductor)).toBe(0n);
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(0n);
+    expect(await cadena.estadoReservaEscrow(ID_RESERVA)).toMatchObject({
+      estado: 'reembolsada',
+    });
+    expect(await cadena.hashDeReembolso(ID_RESERVA)).toBe(hash);
+
+    // Repetir revierte con ReservaNoBloqueada
+    await expect(cadena.reembolsarReserva(ID_RESERVA, 10_000)).rejects.toThrow(
+      'ReservaNoBloqueada',
+    );
+  });
+
+  it('HU-20: reembolsa al 50/50 y reparte exacto entre pasajero y conductor', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    const hash = await cadena.reembolsarReserva(ID_RESERVA, 5_000);
+
+    expect(await cadena.leerSaldo(pasajero.address)).toBe(45n * URC);
+    expect(await cadena.leerSaldo(conductor)).toBe(5n * URC);
+    expect(await cadena.leerSaldo(CadenaSimulada.ESCROW)).toBe(0n);
+    expect(await cadena.hashDeReembolso(ID_RESERVA)).toBe(hash);
+  });
+
+  it('HU-20: porcentaje mayor a 10_000 bps revierte con PorcentajeInvalido', async () => {
+    const cadena = await fondeada(50n * URC);
+    await cadena.bloquearReserva(datos());
+    await expect(cadena.reembolsarReserva(ID_RESERVA, 10_001)).rejects.toThrow(
+      'PorcentajeInvalido',
+    );
+  });
+
+  it('HU-20: una reserva nunca bloqueada no se reembolsa ni tiene hash de reembolso', async () => {
+    const cadena = new CadenaSimulada();
+    await expect(cadena.reembolsarReserva(ID_RESERVA, 10_000)).rejects.toThrow(
+      'ReservaNoBloqueada',
+    );
+    await expect(cadena.hashDeReembolso(ID_RESERVA)).rejects.toThrow();
+  });
+
   it('HU-24: una reserva nunca bloqueada no se libera ni tiene hash de liberación', async () => {
     const cadena = new CadenaSimulada();
     await expect(

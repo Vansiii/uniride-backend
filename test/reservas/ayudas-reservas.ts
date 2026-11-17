@@ -156,6 +156,38 @@ export function ayudasReservas(e: () => Entorno) {
   };
   const saldo = (p: Persona) => b.saldo(p.token);
 
+  const rutaCancelarReserva = (reservaId: string) =>
+    `${RUTA_RESERVAS}/${reservaId}/cancelar`;
+  const rutaCancelarViaje = (viajeId: string) =>
+    `/api/v1/viajes/${viajeId}/cancelar`;
+
+  const cancelarReserva = (
+    p: Conductor,
+    reservaId: string,
+    porcentajeEsperado = 100,
+    extra: object = {},
+  ) => {
+    const cuerpo = { porcentajeEsperado, ...extra };
+    const ruta = rutaCancelarReserva(reservaId);
+    return e()
+      .api()
+      .post(ruta)
+      .set(b.conToken(p.token))
+      .set(firmar('POST', ruta, p.dispositivo, JSON.stringify(cuerpo)))
+      .send(cuerpo);
+  };
+
+  const cancelarViaje = (c: Conductor, viajeId: string, extra: object = {}) => {
+    const cuerpo = { ...extra };
+    const ruta = rutaCancelarViaje(viajeId);
+    return e()
+      .api()
+      .post(ruta)
+      .set(b.conToken(c.token))
+      .set(firmar('POST', ruta, c.dispositivo, JSON.stringify(cuerpo)))
+      .send(cuerpo);
+  };
+
   return {
     v,
     b,
@@ -177,5 +209,9 @@ export function ayudasReservas(e: () => Entorno) {
     huella,
     saldo,
     fondear,
+    cancelarReserva,
+    cancelarViaje,
+    rutaCancelarReserva,
+    rutaCancelarViaje,
   };
 }

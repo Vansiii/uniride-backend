@@ -133,7 +133,7 @@ export class PresenciaService {
     private readonly estadoViaje: EstadoViajeService,
     private readonly viajes: ViajesService,
     private readonly movimientos: MovimientosService,
-  ) {}
+  ) { }
 
   /** CA-1: el conductor registra su llave de trayecto con huella (la petición) e integridad (RN-5). */
   async registrarLlaveConductor(
@@ -377,10 +377,21 @@ export class PresenciaService {
         return id;
       },
     );
-    // Otro escaneo a la vez ganó: queda abordada y la llave de esta petición pasa a ser la vigente.
-    return llaveTrayectoId
-      ? { estado: 'abordada', yaVerificado: false, llaveTrayectoId }
-      : yaAbordada({ ...reserva, estado: 'abordada' });
+    // CA-12: si el UPDATE condicional no ganó, relee la reserva; si ya no está abordada (la ganó
+    // una cancelación o expiración), rechaza con SIN_RESERVA en vez de responder ya abordada.
+    if (!llaveTrayectoId) {
+      const actual = await this.prisma.enOrganizacion(organizacionId, (tx) =>
+        tx.reserva.findUnique({
+          where: { id: reserva.id },
+          select: { estado: true, viajeId: true },
+        }),
+      );
+      if (!actual || actual.estado !== 'abordada') {
+        throw RECHAZOS.sin_reserva('abordaje');
+      }
+      return yaAbordada({ ...reserva, estado: actual.estado });
+    }
+    return { estado: 'abordada', yaVerificado: false, llaveTrayectoId };
   }
 
   /**
