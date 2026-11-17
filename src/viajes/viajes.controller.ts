@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -184,6 +185,7 @@ export class ViajesController {
   }
 
   @Post(':id/cancelar')
+  @HttpCode(200)
   @AccionSensible('viaje.cancelar', OrganizacionGuard, IdentidadVerificadaGuard)
   @ApiOkResponse({
     type: ViajeCanceladoResultadoDto,

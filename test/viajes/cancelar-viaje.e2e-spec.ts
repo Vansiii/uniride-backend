@@ -100,6 +100,6 @@ describe('HU-20 CA-5 · Cancelación de viaje por el conductor (e2e)', () => {
     ]);
 
     const res = await r.cancelarViaje(c, viajeId).expect(409);
-    expect(res.body.error).toBe('NO_CANCELABLE');
+    expect(res.body.codigo).toBe('NO_CANCELABLE');
   });
 });
