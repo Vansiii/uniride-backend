@@ -35,6 +35,14 @@ describe('HU-20 CA-5 · Cancelación de viaje por el conductor (e2e)', () => {
     // Confirmar reservas en cadena simulada
     await r.procesar();
 
+    const contarCorreos = async () =>
+      (
+        await e.bd.query(
+          `SELECT 1 FROM correos_salientes WHERE plantilla = 'viaje_cancelado'`,
+        )
+      ).rowCount;
+    const correosAntes = await contarCorreos();
+
     // Conductor cancela viaje
     const resCancela = await r.cancelarViaje(c, viajeId).expect(200);
     expect(resCancela.body).toEqual({
@@ -59,10 +67,7 @@ describe('HU-20 CA-5 · Cancelación de viaje por el conductor (e2e)', () => {
     }
 
     // Verificar correos encolados
-    const { rows: correos } = await e.bd.query(
-      `SELECT plantilla, destinatario FROM correos_pendientes WHERE plantilla = 'viaje_cancelado'`,
-    );
-    expect(correos).toHaveLength(2);
+    expect((await contarCorreos()) - (correosAntes ?? 0)).toBe(2);
 
     // Auditoría registrada
     const { rows: auditoriaViaje } = await e.bd.query(
