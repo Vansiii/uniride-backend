@@ -22,4 +22,3 @@ async function iniciar() {
   await app.listen(process.env.PORT ?? 3000);
 }
 await iniciar();
-

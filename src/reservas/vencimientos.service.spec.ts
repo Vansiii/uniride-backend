@@ -32,60 +32,82 @@ describe('VencimientosService (HU-20 SP181)', () => {
 
     const tx = {
       reserva: {
-        findMany: vi.fn().mockImplementation((args: { where: Record<string, unknown> }) => {
-          if (args.where.estado === 'confirmada' && args.where.viaje) {
-            const v = args.where.viaje as Record<string, unknown>;
-            if (v.fechaHoraSalida) {
-              return Promise.resolve(o.candidatasSinAbordaje ?? []);
+        findMany: vi
+          .fn()
+          .mockImplementation((args: { where: Record<string, unknown> }) => {
+            if (args.where.estado === 'confirmada' && args.where.viaje) {
+              const v = args.where.viaje as Record<string, unknown>;
+              if (v.fechaHoraSalida) {
+                return Promise.resolve(o.candidatasSinAbordaje ?? []);
+              }
+              if (v.estado) {
+                return Promise.resolve(o.candidatasCancelados ?? []);
+              }
             }
-            if (v.estado) {
-              return Promise.resolve(o.candidatasCancelados ?? []);
+            if (args.where.estado === 'verificacion_fallida') {
+              return Promise.resolve(o.candidatasFallidas ?? []);
             }
-          }
-          if (args.where.estado === 'verificacion_fallida') {
-            return Promise.resolve(o.candidatasFallidas ?? []);
-          }
-          return Promise.resolve([]);
-        }),
-        updateMany: vi.fn().mockImplementation((args: { data: { estado: string } }) => {
-          if (args.data.estado === 'expirada') {
-            return Promise.resolve({ count: o.updateManySinAbordajeCount ?? 1 });
-          }
-          return Promise.resolve({ count: o.updateManyCanceladosCount ?? 1 });
-        }),
+            return Promise.resolve([]);
+          }),
+        updateMany: vi
+          .fn()
+          .mockImplementation((args: { data: { estado: string } }) => {
+            if (args.data.estado === 'expirada') {
+              return Promise.resolve({
+                count: o.updateManySinAbordajeCount ?? 1,
+              });
+            }
+            return Promise.resolve({ count: o.updateManyCanceladosCount ?? 1 });
+          }),
       },
       viaje: {
         findMany: vi.fn().mockResolvedValue(o.viajesPorExpirar ?? []),
       },
       billetera: {
-        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'billetera-1', usuarioId: 'u1' }),
+        findUniqueOrThrow: vi
+          .fn()
+          .mockResolvedValue({ id: 'billetera-1', usuarioId: 'u1' }),
       },
       movimientoBilletera: {
         findFirst: vi.fn().mockResolvedValue(o.movimientoFallidaPrevio ?? null),
-        create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
-          movimientosCreados.push(data);
-          return Promise.resolve({ id: `mov-${movimientosCreados.length}`, ...data });
-        }),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+            movimientosCreados.push(data);
+            return Promise.resolve({
+              id: `mov-${movimientosCreados.length}`,
+              ...data,
+            });
+          }),
       },
       trabajoOnchain: {
-        create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
-          trabajosCreados.push(data);
-          return Promise.resolve({ id: `trabajo-${trabajosCreados.length}`, ...data });
-        }),
+        create: vi
+          .fn()
+          .mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+            trabajosCreados.push(data);
+            return Promise.resolve({
+              id: `trabajo-${trabajosCreados.length}`,
+              ...data,
+            });
+          }),
       },
     };
 
     const prisma = {
-      comoSuperAdmin: vi.fn().mockImplementation(async (cb: (t: typeof tx) => Promise<unknown>) => {
-        return await cb(tx);
-      }),
+      comoSuperAdmin: vi
+        .fn()
+        .mockImplementation(async (cb: (t: typeof tx) => Promise<unknown>) => {
+          return await cb(tx);
+        }),
     };
 
     const auditoria = {
-      registrar: vi.fn().mockImplementation((evento: Record<string, unknown>) => {
-        eventosAuditoria.push(evento);
-        return Promise.resolve();
-      }),
+      registrar: vi
+        .fn()
+        .mockImplementation((evento: Record<string, unknown>) => {
+          eventosAuditoria.push(evento);
+          return Promise.resolve();
+        }),
     };
 
     const estadoViaje = {
@@ -93,10 +115,14 @@ describe('VencimientosService (HU-20 SP181)', () => {
     };
 
     const correos = {
-      encolar: vi.fn().mockImplementation((_tx: unknown, payload: Record<string, unknown>) => {
-        correosEncolados.push(payload);
-        return Promise.resolve();
-      }),
+      encolar: vi
+        .fn()
+        .mockImplementation(
+          (_tx: unknown, payload: Record<string, unknown>) => {
+            correosEncolados.push(payload);
+            return Promise.resolve();
+          },
+        ),
     };
 
     const servicio = new VencimientosService(
@@ -122,18 +148,22 @@ describe('VencimientosService (HU-20 SP181)', () => {
 
   describe('1. Expiración de reservas sin abordar (CA-6, CA-8, RN-5)', () => {
     it('expira reserva confirmada pasados 15 min de la salida y genera reembolso 100 %', async () => {
-      const { servicio, movimientosCreados, trabajosCreados, eventosAuditoria } =
-        crearContexto({
-          candidatasSinAbordaje: [
-            {
-              id: 'res-1',
-              monto: new Prisma.Decimal('12.00'),
-              pasajeroId: 'pasajero-1',
-              organizacionId: 'org-1',
-              viajeId: 'viaje-1',
-            },
-          ],
-        });
+      const {
+        servicio,
+        movimientosCreados,
+        trabajosCreados,
+        eventosAuditoria,
+      } = crearContexto({
+        candidatasSinAbordaje: [
+          {
+            id: 'res-1',
+            monto: new Prisma.Decimal('12.00'),
+            pasajeroId: 'pasajero-1',
+            organizacionId: 'org-1',
+            viajeId: 'viaje-1',
+          },
+        ],
+      });
 
       const res = await servicio.procesarVencimientos(AHORA);
 
@@ -288,16 +318,17 @@ describe('VencimientosService (HU-20 SP181)', () => {
   describe('3. Expiración de viajes pasados 15 min (CA-6, CA-7, RN-5)', () => {
     it('expira viaje sin reservas activas y registra auditoria', async () => {
       const { servicio, estadoViaje, eventosAuditoria } = crearContexto({
-        viajesPorExpirar: [
-          { id: 'viaje-vacio', organizacionId: 'org-1' },
-        ],
+        viajesPorExpirar: [{ id: 'viaje-vacio', organizacionId: 'org-1' }],
         expirarViajeRetorno: true,
       });
 
       const res = await servicio.procesarVencimientos(AHORA);
 
       expect(res.viajesExpirados).toBe(1);
-      expect(estadoViaje.expirar).toHaveBeenCalledWith(expect.anything(), 'viaje-vacio');
+      expect(estadoViaje.expirar).toHaveBeenCalledWith(
+        expect.anything(),
+        'viaje-vacio',
+      );
       expect(eventosAuditoria).toContainEqual(
         expect.objectContaining({
           accion: 'viaje.expirado',
@@ -317,26 +348,35 @@ describe('VencimientosService (HU-20 SP181)', () => {
       const res = await servicio.procesarVencimientos(AHORA);
 
       expect(res.viajesExpirados).toBe(0);
-      expect(estadoViaje.expirar).toHaveBeenCalledWith(expect.anything(), 'viaje-con-abordaje');
-      expect(eventosAuditoria.filter((e) => e.accion === 'viaje.expirado')).toHaveLength(0);
+      expect(estadoViaje.expirar).toHaveBeenCalledWith(
+        expect.anything(),
+        'viaje-con-abordaje',
+      );
+      expect(
+        eventosAuditoria.filter((e) => e.accion === 'viaje.expirado'),
+      ).toHaveLength(0);
     });
   });
 
   describe('4. Reembolso de reservas en verificacion fallida tras 24 h (CA-9, RN-11, D-29)', () => {
     it('devuelve el 100 % al pasajero tras 24 h en verificacion fallida', async () => {
-      const { servicio, movimientosCreados, trabajosCreados, eventosAuditoria } =
-        crearContexto({
-          candidatasFallidas: [
-            {
-              id: 'res-fallida-1',
-              monto: new Prisma.Decimal('20.00'),
-              pasajeroId: 'pasajero-4',
-              organizacionId: 'org-1',
-              actualizadoEn: HACE_25_HORAS,
-            },
-          ],
-          movimientoFallidaPrevio: null,
-        });
+      const {
+        servicio,
+        movimientosCreados,
+        trabajosCreados,
+        eventosAuditoria,
+      } = crearContexto({
+        candidatasFallidas: [
+          {
+            id: 'res-fallida-1',
+            monto: new Prisma.Decimal('20.00'),
+            pasajeroId: 'pasajero-4',
+            organizacionId: 'org-1',
+            actualizadoEn: HACE_25_HORAS,
+          },
+        ],
+        movimientoFallidaPrevio: null,
+      });
 
       const res = await servicio.procesarVencimientos(AHORA);
 
@@ -360,26 +400,34 @@ describe('VencimientosService (HU-20 SP181)', () => {
     });
 
     it('idempotencia: no duplica el reembolso si ya tiene un movimiento previo', async () => {
-      const { servicio, movimientosCreados, trabajosCreados, eventosAuditoria } =
-        crearContexto({
-          candidatasFallidas: [
-            {
-              id: 'res-fallida-1',
-              monto: new Prisma.Decimal('20.00'),
-              pasajeroId: 'pasajero-4',
-              organizacionId: 'org-1',
-              actualizadoEn: HACE_25_HORAS,
-            },
-          ],
-          movimientoFallidaPrevio: { id: 'mov-existente' },
-        });
+      const {
+        servicio,
+        movimientosCreados,
+        trabajosCreados,
+        eventosAuditoria,
+      } = crearContexto({
+        candidatasFallidas: [
+          {
+            id: 'res-fallida-1',
+            monto: new Prisma.Decimal('20.00'),
+            pasajeroId: 'pasajero-4',
+            organizacionId: 'org-1',
+            actualizadoEn: HACE_25_HORAS,
+          },
+        ],
+        movimientoFallidaPrevio: { id: 'mov-existente' },
+      });
 
       const res = await servicio.procesarVencimientos(AHORA);
 
       expect(res.reembolsosFallidos).toBe(0);
       expect(movimientosCreados).toHaveLength(0);
       expect(trabajosCreados).toHaveLength(0);
-      expect(eventosAuditoria.filter((e) => e.accion === 'reserva.reembolsada_fallida')).toHaveLength(0);
+      expect(
+        eventosAuditoria.filter(
+          (e) => e.accion === 'reserva.reembolsada_fallida',
+        ),
+      ).toHaveLength(0);
     });
   });
 });
