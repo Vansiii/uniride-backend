@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -139,6 +140,7 @@ export class ReservasController {
   }
 
   @Post('reservas/:id/cancelar')
+  @HttpCode(200)
   @AccionSensible(
     'reserva.cancelar',
     OrganizacionGuard,

@@ -16,17 +16,23 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
 
   beforeEach(() => r.preparar());
 
+  /** La API solo publica salidas futuras: la salida pasada se fija directo en la BD. */
+  const fijarSalida = (viajeId: string, salida: Date) =>
+    e.bd.query(`UPDATE viajes SET fecha_hora_salida = $1 WHERE id = $2`, [
+      salida,
+      viajeId,
+    ]);
+
   afterAll(async () => {
     await e?.cerrar();
   });
 
   it('CA-6 · expira reservas confirmadas pasados 15 min de salida y el viaje pasa a expirado', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
+    const ahora = new Date();
     const salidaPasada = new Date(ahora.getTime() - 20 * 60 * 1000); // 20 min atrás > 15 min
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salidaPasada.toISOString(),
       precioPorAsiento: '10.00',
     });
 
@@ -36,6 +42,7 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
 
     // Confirmar en cadena simulada
     await r.procesar();
+    await fijarSalida(viajeId, salidaPasada);
 
     // Ejecutar tic de vencimientos simulando 'ahora'
     const resumen = await vencimientosService.procesarVencimientos(ahora);
@@ -65,14 +72,15 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
   });
 
   it('CA-7 · viaje publicado sin reservas pasa a expirado sin mover dinero', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
+    const ahora = new Date();
     const salidaPasada = new Date(ahora.getTime() - 25 * 60 * 1000);
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salidaPasada.toISOString(),
       precioPorAsiento: '15.00',
     });
+
+    await fijarSalida(viajeId, salidaPasada);
 
     const resumen = await vencimientosService.procesarVencimientos(ahora);
     expect(resumen.viajesExpirados).toBe(1);
@@ -80,12 +88,11 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
   });
 
   it('CA-8 · viaje con pasajero abordado no expira el viaje, solo la reserva sin abordar', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
+    const ahora = new Date();
     const salidaPasada = new Date(ahora.getTime() - 20 * 60 * 1000);
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salidaPasada.toISOString(),
       cuposTotales: 3,
     });
 
@@ -96,6 +103,7 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
     const res2 = await r.reservar(p2, viajeId).expect(201);
 
     await r.procesar();
+    await fijarSalida(viajeId, salidaPasada);
 
     // Marcar p1 como abordada y viaje en curso
     await e.bd.query(`UPDATE reservas SET estado = 'abordada' WHERE id = $1`, [
@@ -121,12 +129,11 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
   });
 
   it('CA-9 · reserva en verificacion fallida devuelve el 100 % tras 24 h', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
+    const ahora = new Date();
     const salida = new Date(ahora.getTime() - 30 * 60 * 60 * 1000); // 30 h atrás
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salida.toISOString(),
       precioPorAsiento: '20.00',
     });
 
@@ -135,6 +142,7 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
     const reservaId = res.body.reservaId as string;
 
     await r.procesar();
+    await fijarSalida(viajeId, salida);
 
     // Colocar la reserva en 'verificacion_fallida' con actualizado_en de hace 26 h
     const hace26h = new Date(ahora.getTime() - 26 * 60 * 60 * 1000);
@@ -164,12 +172,10 @@ describe('HU-20 · Tic de vencimientos y expiración (e2e)', () => {
   });
 
   it('CA-19 · reserva confirmada en viaje ya cancelado pasa a cancelada con reembolso 100 %', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
-    const salida = new Date(ahora.getTime() + 60 * 60 * 1000);
+    const ahora = new Date();
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salida.toISOString(),
       precioPorAsiento: '10.00',
     });
     const p = await r.pasajero(org, '50.00');

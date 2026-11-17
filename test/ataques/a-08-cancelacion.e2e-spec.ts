@@ -34,8 +34,8 @@ describe('Ataque A-08 · Cancelación con datos alterados por el cliente (e2e)',
     // Cliente malicioso intenta enviar porcentajeEsperado: 100
     const cancelRes = await r.cancelarReserva(p, reservaId, 100).expect(409);
 
-    expect(cancelRes.body.error).toBe('POLITICA_CAMBIO');
-    expect(cancelRes.body.detalles.cancelacion.porcentajePasajero).toBe(50);
+    expect(cancelRes.body.codigo).toBe('POLITICA_CAMBIO');
+    expect(cancelRes.body.cancelacion.porcentajePasajero).toBe(50);
   });
 
   it('A-08 · el cliente no puede inyectar campos no permitidos (monto, estado) en el cuerpo', async () => {
@@ -57,7 +57,7 @@ describe('Ataque A-08 · Cancelación con datos alterados por el cliente (e2e)',
     const ruta = r.rutaCancelarReserva(reservaId);
 
     // ValidationPipe con whitelist o forbidenNonWhitelisted debe rechazar campos extra
-    await e()
+    await e
       .api()
       .post(ruta)
       .set(r.b.conToken(p.token))

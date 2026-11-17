@@ -46,7 +46,7 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
         porcentajePasajero: 100,
         montoPasajero: '10.00',
         montoConductor: '0.00',
-        motivo: 'mas_de_30_min',
+        motivo: 'cancelada_pasajero',
       });
     });
 
@@ -59,7 +59,7 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
         porcentajePasajero: 50,
         montoPasajero: '5.00',
         montoConductor: '5.00',
-        motivo: '30_min_o_menos',
+        motivo: 'cancelada_pasajero',
       });
     });
   });
@@ -143,8 +143,8 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
       });
 
       // Saldos de billetera: conductor recibe 5 URC
-      const saldoConductor = await r.saldo(c);
-      expect(saldoConductor.disponible).toBe('5.00');
+      const saldoConductor = (await r.saldo(c)).body;
+      expect(saldoConductor.saldoDisponible).toBe('5.00');
     });
   });
 
@@ -155,14 +155,12 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
       const res = await r.cancelarReserva(p, reservaId, 100).expect(409);
 
       expect(res.body).toMatchObject({
-        error: 'POLITICA_CAMBIO',
-        detalles: {
-          cancelacion: {
-            cancelable: true,
-            porcentajePasajero: 50,
-            montoPasajero: '5.00',
-            montoConductor: '5.00',
-          },
+        codigo: 'POLITICA_CAMBIO',
+        cancelacion: {
+          cancelable: true,
+          porcentajePasajero: 50,
+          montoPasajero: '5.00',
+          montoConductor: '5.00',
         },
       });
     });
@@ -196,7 +194,7 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
         .cancelarReserva(p, pendienteId, 100)
         .expect(409)
         .expect((res) => {
-          expect(res.body.error).toBe('RESERVA_PENDIENTE');
+          expect(res.body.codigo).toBe('RESERVA_PENDIENTE');
         });
     });
 
@@ -214,7 +212,7 @@ describe('HU-20 · Cancelación de reserva por pasajero (e2e)', () => {
         .cancelarReserva(p, reservaId, 100)
         .expect(409)
         .expect((res) => {
-          expect(res.body.error).toBe('NO_CANCELABLE');
+          expect(res.body.codigo).toBe('NO_CANCELABLE');
         });
     });
   });

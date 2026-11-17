@@ -23,8 +23,12 @@ describe('Ataque A-10 · Conservación contable de URC en cancelaciones y reembo
     pasajero: { token: string },
     conductor: { token: string },
   ) => {
-    const sp = parseFloat((await r.b.saldo(pasajero.token)).disponible);
-    const sc = parseFloat((await r.b.saldo(conductor.token)).disponible);
+    const sp = parseFloat(
+      (await r.b.saldo(pasajero.token)).body.saldoDisponible,
+    );
+    const sc = parseFloat(
+      (await r.b.saldo(conductor.token)).body.saldoDisponible,
+    );
     return sp + sc;
   };
 
@@ -72,17 +76,20 @@ describe('Ataque A-10 · Conservación contable de URC en cancelaciones y reembo
     expect(totalFinal).toBe(totalInicial);
 
     // 45 para el pasajero (50 - 10 + 5) y 5 para el conductor
-    expect(parseFloat((await r.b.saldo(p.token)).disponible)).toBe(45.0);
-    expect(parseFloat((await r.b.saldo(c.token)).disponible)).toBe(5.0);
+    expect(parseFloat((await r.b.saldo(p.token)).body.saldoDisponible)).toBe(
+      45.0,
+    );
+    expect(parseFloat((await r.b.saldo(c.token)).body.saldoDisponible)).toBe(
+      5.0,
+    );
   });
 
   it('A-10 · expiración conserva el total exacto de URC', async () => {
-    const ahora = new Date('2026-11-15T12:00:00.000Z');
+    const ahora = new Date();
     const salidaPasada = new Date(ahora.getTime() - 20 * 60 * 1000);
 
     const c = await r.conductor(org);
     const viajeId = await r.publicar(c, {
-      fechaHoraSalida: salidaPasada.toISOString(),
       precioPorAsiento: '12.00',
     });
     const p = await r.pasajero(org, '50.00');
@@ -90,6 +97,11 @@ describe('Ataque A-10 · Conservación contable de URC en cancelaciones y reembo
     const totalInicial = await saldoTotal(p, c);
     await r.reservar(p, viajeId).expect(201);
     await r.procesar();
+    // La API solo publica salidas futuras: la salida pasada se fija directo en la BD.
+    await e.bd.query(`UPDATE viajes SET fecha_hora_salida = $1 WHERE id = $2`, [
+      salidaPasada,
+      viajeId,
+    ]);
 
     const vencimientosService = e.app.get(VencimientosService);
     await vencimientosService.procesarVencimientos(ahora);

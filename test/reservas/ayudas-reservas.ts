@@ -76,8 +76,28 @@ export function ayudasReservas(e: () => Entorno) {
     return { ...c, ...(await billeteraConLlave(c.id)) };
   };
 
-  const publicar = async (c: Persona, extra: object = {}): Promise<string> =>
-    (await v.publicar(c, cuerpoViaje(extra)).expect(201)).body.id as string;
+  /** El DTO exige número; las pruebas pueden pasar el precio como texto. */
+  const normalizar = (x: { precioPorAsiento?: unknown }) =>
+    x.precioPorAsiento === undefined
+      ? x
+      : { ...x, precioPorAsiento: Number(x.precioPorAsiento) };
+
+  /** La API exige >= 15 min al publicar: una salida más cercana se fija directo en la BD. */
+  const publicar = async (c: Persona, extra: object = {}): Promise<string> => {
+    const cuerpo = cuerpoViaje(normalizar(extra));
+    const cercana =
+      new Date(cuerpo.fechaHoraSalida).getTime() - Date.now() < 20 * 60_000;
+    const salida = cuerpo.fechaHoraSalida;
+    if (cercana)
+      cuerpo.fechaHoraSalida = new Date(Date.now() + 3_600_000).toISOString();
+    const id = (await v.publicar(c, cuerpo).expect(201)).body.id as string;
+    if (cercana)
+      await e().bd.query(
+        `UPDATE viajes SET fecha_hora_salida = $1 WHERE id = $2`,
+        [salida, id],
+      );
+    return id;
+  };
 
   /** Reserva con la firma del teléfono sobre el cuerpo exacto que se envía. */
   const reservar = (
