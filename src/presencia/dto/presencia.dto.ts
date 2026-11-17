@@ -187,3 +187,35 @@ export class PosicionesAceptadasDto {
   })
   ignorados!: number;
 }
+
+/** HU-28: distancia del conductor al punto de encuentro para el pasajero de una reserva confirmada. */
+export class DistanciaConductorDto {
+  @ApiProperty({
+    description:
+      'true si el conductor tiene una posición registrada de hace 60 s o menos.',
+  })
+  disponible!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'Distancia al origen del viaje en metros redondeada a decenas, o null si no está disponible.',
+  })
+  distanciaM!: number | null;
+
+  @ApiProperty({
+    description:
+      'true si el conductor está a 50 metros o menos del punto de encuentro.',
+  })
+  enPuntoDeEncuentro!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'Antigüedad en segundos de la posición del conductor, o null si no está disponible.',
+  })
+  haceSegundos!: number | null;
+}
+
