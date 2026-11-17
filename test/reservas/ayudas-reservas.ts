@@ -76,8 +76,14 @@ export function ayudasReservas(e: () => Entorno) {
     return { ...c, ...(await billeteraConLlave(c.id)) };
   };
 
+  /** El DTO exige número; las pruebas pueden pasar el precio como texto. */
+  const normalizar = (x: { precioPorAsiento?: unknown }) =>
+    x.precioPorAsiento === undefined
+      ? x
+      : { ...x, precioPorAsiento: Number(x.precioPorAsiento) };
+
   const publicar = async (c: Persona, extra: object = {}): Promise<string> =>
-    (await v.publicar(c, cuerpoViaje(extra)).expect(201)).body.id as string;
+    (await v.publicar(c, cuerpoViaje(normalizar(extra))).expect(201)).body.id as string;
 
   /** Reserva con la firma del teléfono sobre el cuerpo exacto que se envía. */
   const reservar = (
