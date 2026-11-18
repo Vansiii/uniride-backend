@@ -51,7 +51,7 @@ export class RegistrarLlaveTrayectoDto {
   llavePublicaPem!: string;
   @ApiProperty({
     description:
-      'Token de Play Integrity pedido con el `X-Nonce` de esta misma petición.',
+      'Token de atestación (Key Attestation) generado con el `X-Nonce` de esta misma petición.',
   })
   @IsString()
   @MaxLength(10_000)
@@ -112,7 +112,7 @@ export class EncuentroDto {
   posicion!: PosicionDto;
   @ApiProperty({
     description:
-      'Token de Play Integrity pedido con el `X-Nonce` de esta misma petición (RN-5).',
+      'Token de atestación (Key Attestation) generado con el `X-Nonce` de esta misma petición (RN-5).',
   })
   @IsString()
   @MaxLength(10_000)

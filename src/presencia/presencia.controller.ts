@@ -56,11 +56,11 @@ import {
 import { PresenciaService } from './presencia.service.js';
 
 const SERVICIO_CAIDO =
-  '`SERVICIO_NO_DISPONIBLE`: Play Integrity no respondió; reintentar.';
+  '`SERVICIO_NO_DISPONIBLE`: la atestación no está disponible; reintentar.';
 
 /**
  * HU-22: verificación de abordaje; HU-23: seguimiento del trayecto y bajada. El `X-Nonce` de la petición firmada es
- * también el nonce de Play Integrity (RN-5).
+ * también el desafío de la atestación (RN-5).
  */
 @ApiTags('presencia')
 @ApiBearerAuth()

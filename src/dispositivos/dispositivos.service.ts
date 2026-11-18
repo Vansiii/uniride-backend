@@ -14,7 +14,7 @@ import type {
   VincularDispositivoDto,
 } from './dto/dispositivo.dto.js';
 
-/** Tiempo para pedir el token a Play Integrity y enviarlo (la atestación tarda unos segundos). */
+/** Tiempo para generar la atestación y enviarlo (la atestación tarda unos segundos). */
 const VIDA_DESAFIO_MS = 5 * 60 * 1000;
 /** Desafíos pendientes por cuenta: acota la memoria; al pasar el límite se descarta el más viejo. */
 const MAXIMO_PENDIENTES = 5;
