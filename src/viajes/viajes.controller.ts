@@ -1,0 +1,221 @@
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
+import { CuentaActivaGuard } from '../billetera/cuenta-activa.guard.js';
+import {
+  OrganizacionActual,
+  UsuarioActual,
+  type UsuarioToken,
+} from '../comun/decoradores.js';
+import { AccionSensible } from '../comun/firma-dispositivo.guard.js';
+import { IdentidadVerificadaGuard } from '../comun/identidad.guard.js';
+import { OrganizacionGuard } from '../comun/organizacion.guard.js';
+import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
+import {
+  BuscarViajesDto,
+  DetalleViajeDto,
+  LimitesViajeDto,
+  MiViajeDto,
+  PasajeroViajeDto,
+  PublicarViajeDto,
+  ViajeEncontradoDto,
+  ViajePublicadoDto,
+} from './dto/viaje.dto.js';
+import { ViajesService } from './viajes.service.js';
+import { CancelacionesService } from '../reservas/cancelaciones.service.js';
+import { ViajeCanceladoResultadoDto } from '../reservas/dto/reserva.dto.js';
+
+@ApiTags('viajes')
+@ApiBearerAuth()
+@ApiUnauthorizedResponse({ type: ErrorDto, description: '`NO_AUTENTICADO`' })
+@Controller('viajes')
+export class ViajesController {
+  constructor(
+    private readonly servicio: ViajesService,
+    private readonly cancelaciones: CancelacionesService,
+  ) {}
+
+  /** La firma va al final: una petición que se rechazará por otro motivo no gasta su nonce. */
+  @Post()
+  @AccionSensible(
+    'viaje.publicar',
+    OrganizacionGuard,
+    CuentaActivaGuard,
+    IdentidadVerificadaGuard,
+  )
+  @ApiCreatedResponse({
+    type: ViajePublicadoDto,
+    description: 'Publicado en la organización activa del conductor.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description:
+      '`CUPOS_EXCEDEN_CAPACIDAD` (trae `maximo`), `PRECIO_FUERA_DE_RANGO` (trae `minimo` y `maximo`), `PRECIO_NO_MULTIPLO` (trae `paso`: 0,02 URC), `HORARIO_INVALIDO` (trae `minimoMinutos` y `maximoDias`), `LUGARES_IGUALES` o `VALIDACION_FALLIDA`.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTENTICADO`, `FIRMA_DISPOSITIVO_INVALIDA` (también sin dispositivo vinculado) o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTORIZADO` (sin membresía aprobada), `CUENTA_SUSPENDIDA`, `IDENTIDAD_NO_VERIFICADA` o `CONDUCTOR_SIN_VEHICULO`.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_SOLAPADO` (trae `margenHoras` y `salidaExistente`): otro viaje activo del conductor, en cualquiera de sus organizaciones, sale a menos de 2 horas. Un viaje en `publicado` cuya salida ya pasó no cuenta.',
+  })
+  publicar(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Body() dto: PublicarViajeDto,
+  ): Promise<ViajePublicadoDto> {
+    return this.servicio.publicar(usuario.id, organizacionId, dto);
+  }
+
+  /** Basta la sesión: son los viajes de la persona, en todas sus organizaciones. Va antes de `:id`. */
+  @Get('mis-viajes')
+  @ApiOkResponse({ type: MiViajeDto, isArray: true })
+  misViajes(@UsuarioActual() usuario: UsuarioToken): Promise<MiViajeDto[]> {
+    return this.servicio.misViajes(usuario.id);
+  }
+
+  /**
+   * Para mostrar el tope como ayuda antes de fallar; quien decide sigue siendo `POST /viajes`. Va antes de `:id`.
+   * Rechaza la cuenta suspendida para que la app lo sepa al abrir el formulario: firmar pide la huella antes de enviar.
+   */
+  @Get('limites')
+  @UseGuards(OrganizacionGuard, CuentaActivaGuard)
+  @ApiOkResponse({ type: LimitesViajeDto })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTORIZADO` (sin membresía aprobada) o `CUENTA_SUSPENDIDA`.',
+  })
+  limites(
+    @OrganizacionActual() organizacionId: string,
+  ): Promise<LimitesViajeDto> {
+    return this.servicio.limites(organizacionId);
+  }
+
+  /** Solo membresía aprobada, sin firma: buscar no pide huella (decisión del integrante, 07/11). Va antes de `:id`. */
+  @Get('buscar')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({
+    type: ViajeEncontradoDto,
+    isArray: true,
+    description:
+      'Viajes de la organización activa con salida a 1 km y ± 30 minutos, con cupos y aún sin salir, por hora de salida, sin los propios. Máximo 50. Lista vacía si no hay.',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description:
+      '`COORDENADAS_INVALIDAS` o `VALIDACION_FALLIDA` (hora o destino > 100).',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  buscar(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Query() consulta: BuscarViajesDto,
+  ): Promise<ViajeEncontradoDto[]> {
+    return this.servicio.buscar(organizacionId, usuario.id, consulta);
+  }
+
+  /** Solo el conductor del viaje (HU-19 CA-14). */
+  @Get(':id/pasajeros')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({ type: PasajeroViajeDto, isArray: true })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_ENCONTRADO`: no existe, es de otra organización o no eres su conductor.',
+  })
+  pasajeros(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PasajeroViajeDto[]> {
+    return this.servicio.pasajeros(usuario.id, organizacionId, id);
+  }
+
+  @Get(':id')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({ type: DetalleViajeDto })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description: '`VIAJE_NO_ENCONTRADO`, también si es de otra organización.',
+  })
+  detalle(
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<DetalleViajeDto> {
+    return this.servicio.detalle(organizacionId, id);
+  }
+
+  @Post(':id/cancelar')
+  @HttpCode(200)
+  @AccionSensible('viaje.cancelar', OrganizacionGuard, IdentidadVerificadaGuard)
+  @ApiOkResponse({
+    type: ViajeCanceladoResultadoDto,
+    description:
+      'Viaje cancelado y cada reserva confirmada pasa a cancelada con el 100 % reembolsado.',
+  })
+  @ApiUnauthorizedResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTENTICADO`, `FIRMA_DISPOSITIVO_INVALIDA` o `PETICION_EXPIRADA`.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description:
+      '`NO_AUTORIZADO` (sin membresía aprobada) o `IDENTIDAD_NO_VERIFICADA`.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`VIAJE_NO_ENCONTRADO`, también si es de otra organización o no eres su conductor.',
+  })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description: '`NO_CANCELABLE`: viaje en curso, verificado o expirado.',
+  })
+  cancelar(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ViajeCanceladoResultadoDto> {
+    return this.cancelaciones.cancelarViaje(usuario.id, organizacionId, id);
+  }
+}

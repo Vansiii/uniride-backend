@@ -25,11 +25,20 @@ model Usuario {
   bloqueadoHasta        DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
   ultimaOrganizacionId  String?   @map("ultima_organizacion_id") @db.Uuid
   consentimientoDatosEn DateTime? @map("consentimiento_datos_en") @db.Timestamptz(3)
+  suspendidaEn          DateTime? @map("suspendida_en") @db.Timestamptz(3)
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   tokensRefresco TokenRefresco[]
   membresias     Membresia[]
   vehiculo       Vehiculo?
+  identidad      Identidad?
+  dispositivos   Dispositivo[]
+  billetera      Billetera?
+  ordenesRecarga OrdenRecarga[]
+  viajes         Viaje[]
+  reservas       Reserva[]
+  llavesTrayecto LlaveTrayecto[]
+  puntosGps      PuntoGps[]
 
   @@map("usuarios")
 }
@@ -81,6 +90,12 @@ model Organizacion {
   membresias   Membresia[]
   invitaciones Invitacion[]
   dominios     DominioOrganizacion[]
+  viajes       Viaje[]
+  reservas     Reserva[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
+  puntosGps      PuntoGps[]
+  pruebas        PruebaPresencia[]
 
   @@map("organizaciones")
 }
@@ -173,8 +188,181 @@ model Vehiculo {
   creadoEn             DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   propietario Usuario @relation(fields: [propietarioId], references: [id])
+  viajes      Viaje[]
 
   @@map("vehiculos")
+}
+
+// --- HU-17: publicar viaje ---
+
+/// Máquina de estados del viaje (`AGENTS.md` §5.9): el servidor controla las transiciones.
+enum EstadoViaje {
+  publicado
+  reservado
+  en_curso
+  verificado
+  pagado
+  cancelado
+  expirado
+
+  @@map("estado_viaje")
+}
+
+/// Dato institucional con RLS (A-13). Los CHECK de cupos, precio y coordenadas están en la migración.
+model Viaje {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId   String      @map("organizacion_id") @db.Uuid
+  conductorId      String      @map("conductor_id") @db.Uuid
+  vehiculoId       String      @map("vehiculo_id") @db.Uuid
+  origenNombre     String      @map("origen_nombre")
+  origenLat        Decimal     @map("origen_lat") @db.Decimal(9, 6)
+  origenLng        Decimal     @map("origen_lng") @db.Decimal(9, 6)
+  destinoNombre    String      @map("destino_nombre")
+  destinoLat       Decimal     @map("destino_lat") @db.Decimal(9, 6)
+  destinoLng       Decimal     @map("destino_lng") @db.Decimal(9, 6)
+  fechaHoraSalida  DateTime    @map("fecha_hora_salida") @db.Timestamptz(3)
+  cuposTotales     Int         @map("cupos_totales")
+  cuposDisponibles Int         @map("cupos_disponibles")
+  precioPorAsiento Decimal     @map("precio_por_asiento") @db.Decimal(12, 2)
+  estado           EstadoViaje @default(publicado)
+  creadoEn         DateTime    @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  conductor    Usuario      @relation(fields: [conductorId], references: [id])
+  vehiculo     Vehiculo     @relation(fields: [vehiculoId], references: [id])
+  reservas     Reserva[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
+  puntosGps      PuntoGps[]
+
+  @@index([organizacionId, estado, fechaHoraSalida, cuposDisponibles], map: "idx_viajes_busqueda")
+  @@index([conductorId, fechaHoraSalida])
+  @@map("viajes")
+}
+
+// --- HU-08: verificación de identidad ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Fuente de verdad del estado de identidad
+/// (la columna `usuarios.estado_identidad` no se usa). `documentoHash`, `claveS3Carnet` y `faceIdColeccion` nunca salen de la API.
+/// Se crea en el primer intento y solo se llenan hash, clave y face id al quedar verificada (así un intento fallido no reserva un documento ajeno).
+model Identidad {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String    @unique @map("usuario_id") @db.Uuid
+  documentoHash    String?   @unique @map("documento_hash")
+  estado           String    @default("no_verificada")
+  similitudFacial  Decimal?  @map("similitud_facial") @db.Decimal(5, 2)
+  claveS3Carnet    String?   @map("clave_s3_carnet")
+  faceIdColeccion  String?   @map("face_id_coleccion")
+  intentosFallidos Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta   DateTime? @map("bloqueado_hasta") @db.Timestamptz(3)
+  consentimientoEn DateTime  @map("consentimiento_en") @db.Timestamptz(3)
+  verificadoEn     DateTime? @map("verificado_en") @db.Timestamptz(3)
+  creadoEn         DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@map("identidades")
+}
+
+// --- HU-09: vinculación de dispositivo ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Un dispositivo por cuenta en v1 (A-02).
+/// Solo se guarda la llave pública; la privada nunca sale del Keystore del teléfono.
+/// En HU-10 pasa a 1–N para conservar el historial de teléfonos inactivos (RN-6).
+model Dispositivo {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId           String    @map("usuario_id") @db.Uuid
+  llavePublica        String    @map("llave_publica")
+  algoritmo           String    @default("ECDSA_P256")
+  modeloDispositivo   String    @map("modelo_dispositivo")
+  veredictoIntegridad String    @map("veredicto_integridad")
+  activo              Boolean   @default(true)
+  vinculadoEn         DateTime  @default(now()) @map("vinculado_en") @db.Timestamptz(3)
+  desactivadoEn       DateTime? @map("desactivado_en") @db.Timestamptz(3)
+  ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+  llavesTrayecto LlaveTrayecto[]
+
+  @@index([usuarioId])
+  @@map("dispositivos")
+}
+
+// --- HU-12: billetera ---
+
+/// Dato personal (D-07): sin organizacion_id ni RLS, se protege por dueño. Una billetera por usuario (A-02).
+/// `llaveCustodiaRef` guarda la llave privada solo cifrada (A-12) y nunca sale en respuestas, logs ni auditoría.
+model Billetera {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String   @unique @map("usuario_id") @db.Uuid
+  direccion        String   @unique
+  llaveCustodiaRef String   @map("llave_custodia_ref")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  usuario     Usuario               @relation(fields: [usuarioId], references: [id])
+  movimientos MovimientoBilletera[]
+  ordenes     OrdenRecarga[]
+
+  @@map("billeteras")
+}
+
+/// Libro mayor (HU-14): solo inserción; de una fila ya escrita solo cambian `estado` y `hashTx`, y una vez confirmada ya no (trigger y GRANT en la migración).
+model MovimientoBilletera {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  billeteraId       String   @map("billetera_id") @db.Uuid
+  tipo              String
+  monto             Decimal  @db.Decimal(12, 2)
+  estado            String   @default("pendiente")
+  reservaId         String?  @map("reserva_id") @db.Uuid
+  hashTx            String?  @map("hash_tx")
+  claveIdempotencia String   @unique @map("clave_idempotencia")
+  metadatos         Json?
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  billetera Billetera       @relation(fields: [billeteraId], references: [id])
+  reserva   Reserva?        @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  trabajo   TrabajoOnchain?
+
+  @@index([billeteraId, creadoEn(sort: Desc)])
+  @@index([reservaId])
+  @@map("movimientos_billetera")
+}
+
+/// HU-13: dato personal, se protege por dueño. Su movimiento lleva la clave `recarga:<id>`.
+model OrdenRecarga {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId    String    @map("usuario_id") @db.Uuid
+  billeteraId  String    @map("billetera_id") @db.Uuid
+  monto        Decimal   @db.Decimal(12, 2)
+  estado       String    @default("pendiente")
+  hashTx       String?   @map("hash_tx")
+  expiraEn     DateTime  @map("expira_en") @db.Timestamptz(3)
+  completadaEn DateTime? @map("completada_en") @db.Timestamptz(3)
+  creadoEn     DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id])
+  billetera Billetera @relation(fields: [billeteraId], references: [id])
+
+  @@index([usuarioId, expiraEn])
+  @@map("ordenes_recarga")
+}
+
+/// Cola on-chain (D-10): tabla interna, sin acceso de usuarios.
+model TrabajoOnchain {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  movimientoId     String   @unique @map("movimiento_id") @db.Uuid
+  operacion        String
+  intentos         Int      @default(0)
+  proximoIntentoEn DateTime @default(now()) @map("proximo_intento_en") @db.Timestamptz(3)
+  ultimoError      String?  @map("ultimo_error")
+  estado           String   @default("pendiente")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  movimiento MovimientoBilletera @relation(fields: [movimientoId], references: [id])
+
+  @@index([estado, proximoIntentoEn])
+  @@map("trabajos_onchain")
 }
 
 /// Tabla interna del worker de correos: sin organización ni RLS.
@@ -194,4 +382,172 @@ model CorreoSaliente {
   @@index([estado, proximoIntentoEn])
   @@index([referenciaTipo, referenciaId])
   @@map("correos_salientes")
+}
+
+// --- HU-19: reserva con escrow ---
+
+/// Dato institucional: lleva `organizacion_id` y RLS (A-13). El monto lo fija el servidor con el precio del viaje.
+/// Estados (D-23, HU-20): pendiente → confirmada → abordada → verificada → pagada; además fallida, verificacion_fallida, cancelada y expirada.
+model Reserva {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId    String   @map("organizacion_id") @db.Uuid
+  viajeId           String   @map("viaje_id") @db.Uuid
+  pasajeroId        String   @map("pasajero_id") @db.Uuid
+  monto             Decimal  @db.Decimal(12, 2)
+  estado            String   @default("pendiente")
+  claveIdempotencia String   @unique @map("clave_idempotencia")
+  motivo            String?
+  /// CA-15: pares, coincidencia, velocidad máxima y motivo de la evaluación del trayecto (HU-23).
+  evaluacion        Json?
+  /// HU-25: cuándo la revisó el tic de anomalías; nulo si falta.
+  anomaliasEvaluadasEn DateTime? @map("anomalias_evaluadas_en") @db.Timestamptz(3)
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn     DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion          @relation(fields: [organizacionId], references: [id])
+  viaje        Viaje                 @relation(fields: [viajeId], references: [id])
+  pasajero     Usuario               @relation(fields: [pasajeroId], references: [id])
+  movimientos  MovimientoBilletera[]
+  llavesTrayecto LlaveTrayecto[]
+  desafios       DesafioHandshake[]
+  pruebas        PruebaPresencia[]
+  bloqueos       BloqueoPreventivo[]
+  calificaciones Calificacion[]
+
+  @@index([viajeId, estado])
+  @@index([pasajeroId, creadoEn(sort: Desc)])
+  @@map("reservas")
+}
+
+// --- HU-22: verificación de abordaje (organizacion_id + RLS, A-13) ---
+
+/// D-22: llave sin biometría que firma los desafíos del conductor (`reservaId` nulo) o del pasajero. Una vigente por persona y viaje.
+model LlaveTrayecto {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String    @map("organizacion_id") @db.Uuid
+  viajeId        String    @map("viaje_id") @db.Uuid
+  reservaId      String?   @map("reserva_id") @db.Uuid
+  usuarioId      String    @map("usuario_id") @db.Uuid
+  dispositivoId  String    @map("dispositivo_id") @db.Uuid
+  llavePublica   String    @map("llave_publica")
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  revocadaEn     DateTime? @map("revocada_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje        @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  reserva      Reserva?     @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  dispositivo  Dispositivo  @relation(fields: [dispositivoId], references: [id], onDelete: Restrict)
+
+  @@map("llaves_trayecto")
+}
+
+/// RN-1: código de un solo uso y 30 s de vida, del viaje. Solo cambian `usadoEn` y `reservaId` (GRANT en la migración).
+model DesafioHandshake {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String    @map("organizacion_id") @db.Uuid
+  viajeId             String    @map("viaje_id") @db.Uuid
+  tipo                String
+  nonce               String    @unique
+  conductorLat        Float     @map("conductor_lat")
+  conductorLng        Float     @map("conductor_lng")
+  conductorPrecisionM Float     @map("conductor_precision_m")
+  conductorTomadaEn   DateTime  @map("conductor_tomada_en") @db.Timestamptz(3)
+  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  venceEn             DateTime  @map("vence_en") @db.Timestamptz(3)
+  usadoEn             DateTime? @map("usado_en") @db.Timestamptz(3)
+  reservaId           String?   @map("reserva_id") @db.Uuid
+
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje             @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  reserva      Reserva?          @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  pruebas      PruebaPresencia[]
+
+  @@map("desafios_handshake")
+}
+
+/// CA-13: cada intento con reserva propia. `hashPrueba` (SHA-256) lo usa HU-24. Solo inserción.
+model PruebaPresencia {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId      String   @map("organizacion_id") @db.Uuid
+  reservaId           String   @map("reserva_id") @db.Uuid
+  desafioId           String?  @map("desafio_id") @db.Uuid
+  tipo                String
+  pasajeroLat         Float?   @map("pasajero_lat")
+  pasajeroLng         Float?   @map("pasajero_lng")
+  pasajeroPrecisionM  Float?   @map("pasajero_precision_m")
+  distanciaM          Float?   @map("distancia_m")
+  veredictoIntegridad String?  @map("veredicto_integridad")
+  resultado           String
+  motivo              String?
+  hashPrueba          String?  @map("hash_prueba")
+  creadoEn            DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  reserva      Reserva           @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+  desafio      DesafioHandshake? @relation(fields: [desafioId], references: [id], onDelete: Restrict)
+
+  @@map("pruebas_presencia")
+}
+
+// --- HU-23: seguimiento del trayecto (organizacion_id + RLS, A-13) ---
+
+/// RN-1: una posición cada 15 s por persona y viaje. RN-8: solo para verificar. Solo inserción.
+model PuntoGps {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  viajeId        String   @map("viaje_id") @db.Uuid
+  usuarioId      String   @map("usuario_id") @db.Uuid
+  lat            Float
+  lng            Float
+  precisionM     Float    @map("precision_m")
+  tomadaEn       DateTime @map("tomada_en") @db.Timestamptz(3)
+  simulada       Boolean
+  recibidoEn     DateTime @default(now()) @map("recibido_en") @db.Timestamptz(3)
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Restrict)
+  viaje        Viaje        @relation(fields: [viajeId], references: [id], onDelete: Restrict)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@unique([viajeId, usuarioId, tomadaEn], map: "puntos_gps_viaje_usuario_tomada_key")
+  @@map("puntos_gps")
+}
+
+// --- HU-25: bloqueos preventivos (de la persona, sin RLS; solo inserción) ---
+
+model BloqueoPreventivo {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo         String
+  usuarioId    String   @map("usuario_id") @db.Uuid
+  usuarioParId String?  @map("usuario_par_id") @db.Uuid
+  patron       String
+  reservaId    String   @map("reserva_id") @db.Uuid
+  venceEn      DateTime @map("vence_en") @db.Timestamptz(3)
+  creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  reserva Reserva @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+
+  @@unique([reservaId, patron, usuarioId])
+  @@index([usuarioId, venceEn])
+  @@index([usuarioParId, venceEn])
+  @@map("bloqueos_preventivos")
+}
+
+// --- HU-21: calificaciones (organizacion_id + RLS, A-13; sin edición ni borrado) ---
+
+model Calificacion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  reservaId      String   @map("reserva_id") @db.Uuid
+  autorId        String   @map("autor_id") @db.Uuid
+  destinatarioId String   @map("destinatario_id") @db.Uuid
+  estrellas      Int
+  comentario     String?
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  reserva Reserva @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+
+  @@unique([reservaId, autorId])
+  @@index([destinatarioId])
+  @@map("calificaciones")
 }

@@ -22,14 +22,17 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "test:carga": "vitest run --config ./vitest.config.carga.ts",
     "prisma:generar": "prisma generate",
     "prisma:migrar": "prisma migrate dev",
     "prisma:semilla": "node prisma/semilla.ts",
     "format:verificar": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\""
   },
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1162.0",
     "@aws-sdk/client-s3": "^3.1157.0",
     "@aws-sdk/client-sesv2": "^3.1156.0",
+    "@googleapis/playintegrity": "^28.1.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/core": "^12.0.1",
     "@nestjs/jwt": "^12.0.3",
@@ -41,7 +44,10 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "ethers": "^6.17.0",
+    "google-auth-library": "^11.3.3",
     "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -53,8 +59,9 @@
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.12",
     "oxlint": "^1.58.0",
     "prettier": "^3.4.2",
     "prisma": "^7.10.0",
@@ -62,11 +69,11 @@
     "supertest": "^7.0.0",
     "typescript": "^6.0.2",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.12"
   },
   "allowScripts": {
-    "prisma@7.10.0": true,
-    "@prisma/engines@7.10.0": true,
+    "prisma@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
     "@scarf/scarf": false
   }
 }

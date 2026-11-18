@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, type Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
@@ -26,18 +26,26 @@ export interface Entorno {
   cerrar: () => Promise<void>;
 }
 
-export async function prepararEntorno(): Promise<Entorno> {
+/** `modulosExtra`: módulos solo de prueba (p. ej. un controlador protegido con un guard) que se suman a la aplicación. */
+export async function prepararEntorno(
+  modulosExtra: Type<unknown>[] = [],
+): Promise<Entorno> {
   process.env.JWT_ACCESO_SECRETO ??= 'secreto-de-pruebas';
   process.env.CORREO_MODO = 'consola';
   process.env.OTP_SECRETO ||= 'secreto-otp-de-pruebas';
+  process.env.IDENTIDAD_SECRETO ||= 'secreto-identidad-de-pruebas';
+  // HU-12: ninguna prueba toca un nodo real. La clave es de relleno, sin valor fuera de estas pruebas.
+  process.env.BLOCKCHAIN_SIMULADA = 'true';
+  process.env.CADENA_ID ||= '31337';
+  process.env.WALLET_ENCRYPTION_KEY ||= 'ab'.repeat(32);
   const bd = new pg.Client({
     connectionString: process.env.DATABASE_URL_MIGRACIONES,
   });
   await bd.connect();
   const modulo = await Test.createTestingModule({
-    imports: [AplicacionModule],
+    imports: [AplicacionModule, ...modulosExtra],
   }).compile();
-  const app = modulo.createNestApplication();
+  const app = modulo.createNestApplication({ rawBody: true });
   configurarAplicacion(app);
   await app.init();
   const api = () => request(app.getHttpServer());
@@ -60,6 +68,36 @@ export async function prepararEntorno(): Promise<Entorno> {
     await bd.query(
       `DELETE FROM registros_auditoria WHERE organizacion_id IN (${orgs}) OR actor_id IN (${usuarios})`,
     );
+    // HU-19: los movimientos apuntan a reservas y las reservas a viajes: se borra en ese orden.
+    const billeterasPrueba = `SELECT id FROM billeteras WHERE usuario_id IN (${usuarios})`;
+    await bd.query(
+      `DELETE FROM trabajos_onchain WHERE movimiento_id IN (SELECT id FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba}))`,
+    );
+    await bd.query(
+      `DELETE FROM movimientos_billetera WHERE billetera_id IN (${billeterasPrueba})`,
+    );
+    // HU-22 y HU-23: la presencia apunta a reservas, viajes, usuarios y dispositivos; todo es de una organización de prueba.
+    for (const tabla of [
+      'puntos_gps',
+      'pruebas_presencia',
+      'desafios_handshake',
+      'llaves_trayecto',
+    ])
+      await bd.query(`DELETE FROM ${tabla} WHERE organizacion_id IN (${orgs})`);
+    // HU-25: los bloqueos apuntan a reservas y a usuarios de prueba.
+    await bd.query(
+      `DELETE FROM bloqueos_preventivos WHERE usuario_id IN (${usuarios}) OR usuario_par_id IN (${usuarios})`,
+    );
+    // HU-21: las calificaciones apuntan a reservas.
+    await bd.query(
+      `DELETE FROM calificaciones WHERE organizacion_id IN (${orgs})`,
+    );
+    await bd.query(
+      `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
+    );
+    await bd.query(
+      `DELETE FROM viajes WHERE organizacion_id IN (${orgs}) OR conductor_id IN (${usuarios})`,
+    );
     await bd.query(`DELETE FROM membresias WHERE organizacion_id IN (${orgs})`);
     await bd.query(
       `DELETE FROM dominios_organizacion WHERE organizacion_id IN (${orgs})`,
@@ -76,6 +114,21 @@ export async function prepararEntorno(): Promise<Entorno> {
     await bd.query(
       `DELETE FROM vehiculos WHERE propietario_id IN (${usuarios})`,
     );
+    await bd.query(`DELETE FROM identidades WHERE usuario_id IN (${usuarios})`);
+    await bd.query(
+      `DELETE FROM dispositivos WHERE usuario_id IN (${usuarios})`,
+    );
+    const billeteras = `SELECT id FROM billeteras WHERE usuario_id IN (${usuarios})`;
+    await bd.query(
+      `DELETE FROM trabajos_onchain WHERE movimiento_id IN (SELECT id FROM movimientos_billetera WHERE billetera_id IN (${billeteras}))`,
+    );
+    await bd.query(
+      `DELETE FROM ordenes_recarga WHERE billetera_id IN (${billeteras})`,
+    );
+    await bd.query(
+      `DELETE FROM movimientos_billetera WHERE billetera_id IN (SELECT id FROM billeteras WHERE usuario_id IN (${usuarios}))`,
+    );
+    await bd.query(`DELETE FROM billeteras WHERE usuario_id IN (${usuarios})`);
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
   await limpiar();

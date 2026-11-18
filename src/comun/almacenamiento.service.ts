@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
   type PutObjectCommandInput,
@@ -10,6 +11,7 @@ import {
 export interface Almacen {
   subir(clave: string, contenido: Buffer, tipo: string): Promise<void>;
   borrar(clave: string): Promise<void>;
+  descargar(clave: string): Promise<Buffer>;
 }
 
 type Cifrado = Pick<
@@ -70,6 +72,17 @@ class AlmacenS3 implements Almacen {
     );
   }
 
+  async descargar(clave: string): Promise<Buffer> {
+    const respuesta = await this.cliente.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: clave }),
+    );
+    if (!respuesta.Body) {
+      throw new Error('Cuerpo de objeto S3 vacio');
+    }
+    const bytes = await respuesta.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
   /** Solo MinIO: en AWS el bucket ya existe con su política. Si falla, se reintenta en la próxima subida. */
   private crearBucket(): Promise<unknown> {
     this.bucketListo ??= this.cliente
@@ -114,6 +127,16 @@ export class AlmacenamientoService implements OnModuleInit {
       this.registro.error(
         `No se pudo borrar un archivo huérfano (${nombre(error)})`,
       );
+    }
+  }
+
+  async descargar(clave: string): Promise<Buffer> {
+    this.almacen ??= new AlmacenS3();
+    try {
+      return await this.almacen.descargar(clave);
+    } catch (error) {
+      this.registro.error(`No se pudo descargar el archivo (${nombre(error)})`);
+      throw error;
     }
   }
 }

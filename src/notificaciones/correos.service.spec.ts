@@ -43,6 +43,18 @@ describe('plantillas', () => {
     expect(c.texto).not.toMatch(/\d{6}/);
   });
 
+  it('dispositivo_revinculado: fecha, modelo y qué hacer si no fue la persona (HU-10 CA-8)', () => {
+    const c = renderizar('dispositivo_revinculado', {
+      nombre: 'Ana',
+      modelo: 'Pixel 8',
+      fecha: '10 de noviembre de 2026 a las 4:42 p. m.',
+    });
+    expect(c.texto).toContain(
+      'El 10 de noviembre de 2026 a las 4:42 p. m. se vinculó un nuevo teléfono (Pixel 8)',
+    );
+    expect(c.texto).toContain('Si no fuiste tú');
+  });
+
   it('un dato faltante queda vacío', () => {
     expect(renderizar('otp_registro', {}).asunto).toBe(
       'Tu código de UniRide: ',

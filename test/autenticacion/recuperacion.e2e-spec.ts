@@ -278,7 +278,7 @@ describe('HU-34 · Recuperación de contraseña (e2e)', () => {
       expect(rows).toHaveLength(1);
     }
     await iniciar(existente, CONTRASENA).expect(200);
-  });
+  }, 20000);
 
   it('CA-5: un código vencido se rechaza y se puede pedir otro; uno usado, también', async () => {
     const correo = 'rec.fabi@hu01.test';

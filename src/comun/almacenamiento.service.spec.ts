@@ -1,6 +1,7 @@
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -161,6 +162,23 @@ describe('AlmacenamientoService con S3', () => {
       'No se pudo subir el archivo (AccessDenied)',
       'No se pudo borrar un archivo huérfano (AccessDenied)',
     ]);
+  });
+
+  it('descargar: devuelve el buffer del objeto S3', async () => {
+    enviar.mockResolvedValueOnce({
+      Body: {
+        transformToByteArray: async () => new Uint8Array([1, 2, 3]),
+      },
+    } as never);
+    const s = crear();
+    const res = await s.descargar(CLAVE);
+    expect(res).toEqual(Buffer.from([1, 2, 3]));
+    const [get] = comandos();
+    expect(get).toBeInstanceOf(GetObjectCommand);
+    expect(get.input).toEqual({
+      Bucket: 'uniride-sensible',
+      Key: CLAVE,
+    });
   });
 
   it('un S3_CIFRADO inválido detiene el arranque', () => {
