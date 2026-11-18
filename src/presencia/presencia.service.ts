@@ -19,6 +19,7 @@ import type {
   BajadaDto,
   CrearDesafioDto,
   DesafioDto,
+  DistanciaConductorDto,
   EncuentroDto,
   EstadoDesafioDto,
   LlaveTrayectoCreadaDto,
@@ -916,6 +917,146 @@ export class PresenciaService {
       },
       tx,
     );
+  }
+
+  /**
+   * HU-28: distancia del conductor al punto de encuentro para el pasajero de una reserva confirmada.
+   * Solo devuelve distancia si tiene una posición de hace <= 60 s (RN-4). Nunca revela coordenadas ni el instante.
+   */
+  async distanciaConductor(
+    usuarioId: string,
+    organizacionId: string,
+    reservaId: string,
+    ahora = new Date(),
+  ): Promise<DistanciaConductorDto> {
+    return this.prisma.enOrganizacion(organizacionId, async (tx) => {
+      const reserva = await tx.reserva.findFirst({
+        where: {
+          id: reservaId,
+          organizacionId,
+          pasajeroId: usuarioId,
+        },
+        select: {
+          id: true,
+          estado: true,
+          viaje: {
+            select: {
+              id: true,
+              conductorId: true,
+              origenLat: true,
+              origenLng: true,
+            },
+          },
+        },
+      });
+
+      if (!reserva || reserva.estado !== 'confirmada') {
+        throw new ErrorNegocio(
+          404,
+          'RESERVA_NO_ENCONTRADA',
+          'comun.errores.no_encontrado',
+        );
+      }
+
+      const [ultimoDesafio, ultimoPuntoGps] = await Promise.all([
+        tx.desafioHandshake.findFirst({
+          where: {
+            viajeId: reserva.viaje.id,
+          },
+          orderBy: { conductorTomadaEn: 'desc' },
+          select: {
+            conductorLat: true,
+            conductorLng: true,
+            conductorTomadaEn: true,
+          },
+        }),
+        tx.puntoGps.findFirst({
+          where: {
+            viajeId: reserva.viaje.id,
+            usuarioId: reserva.viaje.conductorId,
+          },
+          orderBy: { tomadaEn: 'desc' },
+          select: {
+            lat: true,
+            lng: true,
+            tomadaEn: true,
+          },
+        }),
+      ]);
+
+      let ultimaPosicion: {
+        lat: number;
+        lng: number;
+        tomadaEn: Date;
+      } | null = null;
+
+      if (ultimoDesafio && ultimoPuntoGps) {
+        if (ultimoDesafio.conductorTomadaEn >= ultimoPuntoGps.tomadaEn) {
+          ultimaPosicion = {
+            lat: ultimoDesafio.conductorLat,
+            lng: ultimoDesafio.conductorLng,
+            tomadaEn: ultimoDesafio.conductorTomadaEn,
+          };
+        } else {
+          ultimaPosicion = {
+            lat: ultimoPuntoGps.lat,
+            lng: ultimoPuntoGps.lng,
+            tomadaEn: ultimoPuntoGps.tomadaEn,
+          };
+        }
+      } else if (ultimoDesafio) {
+        ultimaPosicion = {
+          lat: ultimoDesafio.conductorLat,
+          lng: ultimoDesafio.conductorLng,
+          tomadaEn: ultimoDesafio.conductorTomadaEn,
+        };
+      } else if (ultimoPuntoGps) {
+        ultimaPosicion = {
+          lat: ultimoPuntoGps.lat,
+          lng: ultimoPuntoGps.lng,
+          tomadaEn: ultimoPuntoGps.tomadaEn,
+        };
+      }
+
+      if (!ultimaPosicion) {
+        return {
+          disponible: false,
+          distanciaM: null,
+          enPuntoDeEncuentro: false,
+          haceSegundos: null,
+        };
+      }
+
+      const diffMs = ahora.getTime() - ultimaPosicion.tomadaEn.getTime();
+      const haceSegundos = Math.max(0, Math.floor(diffMs / 1000));
+
+      if (diffMs < -30_000 || haceSegundos > 60) {
+        return {
+          disponible: false,
+          distanciaM: null,
+          enPuntoDeEncuentro: false,
+          haceSegundos: null,
+        };
+      }
+
+      const dExacta = distanciaM(
+        { lat: ultimaPosicion.lat, lng: ultimaPosicion.lng },
+        {
+          lat: Number(reserva.viaje.origenLat),
+          lng: Number(reserva.viaje.origenLng),
+        },
+      );
+
+      const distanciaRedondeada = Math.round(dExacta / 10) * 10;
+      const enPuntoDeEncuentro = dExacta <= DISTANCIA_MAXIMA_M;
+
+      return {
+        disponible: true,
+        distanciaM: distanciaRedondeada,
+        enPuntoDeEncuentro,
+        haceSegundos,
+      };
+    });
   }
 }
 

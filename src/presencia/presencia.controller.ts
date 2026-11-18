@@ -45,6 +45,7 @@ import {
   BajadaDto,
   CrearDesafioDto,
   DesafioDto,
+  DistanciaConductorDto,
   EncuentroDto,
   EstadoDesafioDto,
   LlaveTrayectoCreadaDto,
@@ -388,6 +389,34 @@ export class PresenciaController {
       reservaId,
       llave,
       dto.puntos,
+    );
+  }
+
+  @Get('reservas/:id/conductor')
+  @UseGuards(OrganizacionGuard)
+  @ApiOkResponse({
+    type: DistanciaConductorDto,
+    description:
+      'HU-28: distancia del conductor al punto de encuentro si tiene posición de hace ≤ 60 s. Solo para el pasajero de la reserva confirmada.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description:
+      '`RESERVA_NO_ENCONTRADA`: no existe, es de otra organización, no es tuya o no está confirmada.',
+  })
+  @ApiForbiddenResponse({
+    type: ErrorDto,
+    description: '`NO_AUTORIZADO`: sin membresía aprobada en la organización.',
+  })
+  distanciaConductor(
+    @UsuarioActual() usuario: UsuarioToken,
+    @OrganizacionActual() organizacionId: string,
+    @Param('id', ParseUUIDPipe) reservaId: string,
+  ): Promise<DistanciaConductorDto> {
+    return this.servicio.distanciaConductor(
+      usuario.id,
+      organizacionId,
+      reservaId,
     );
   }
 }

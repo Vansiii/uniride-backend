@@ -176,4 +176,55 @@ describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () =>
     expect(await cuenta(a)).toBe(0);
     expect(await cuenta(b)).toBe(2);
   });
+
+  describe('HU-28 CA-14: distancia del conductor', () => {
+    it('con reserva de otra organización responde 404 RESERVA_NO_ENCONTRADA', async () => {
+      const enB = await h.escenario(b);
+      const enA = await h.escenario(a);
+      const pa = enA.pasajeros[0];
+      const pb = enB.pasajeros[0];
+
+      // Pasajero de A intenta consultar la reserva de B
+      const res = await e
+        .api()
+        .get(`/api/v1/reservas/${pb.reservaId}/conductor`)
+        .set(h.r.b.conToken(pa.token))
+        .expect(404);
+
+      expect(res.body.codigo).toBe('RESERVA_NO_ENCONTRADA');
+    });
+
+    it('con reserva de otro pasajero en la misma organización responde 404 RESERVA_NO_ENCONTRADA', async () => {
+      const s = await h.escenario(a, 2);
+      const [p1, p2] = s.pasajeros;
+
+      // P2 intenta consultar la reserva de P1
+      const res = await e
+        .api()
+        .get(`/api/v1/reservas/${p1.reservaId}/conductor`)
+        .set(h.r.b.conToken(p2.token))
+        .expect(404);
+
+      expect(res.body.codigo).toBe('RESERVA_NO_ENCONTRADA');
+    });
+
+    it('con reserva propia que no está confirmada responde 404 RESERVA_NO_ENCONTRADA', async () => {
+      const s = await h.escenario(a);
+      const p = s.pasajeros[0];
+
+      // Simulamos que la reserva pasó a 'abordada'
+      await e.bd.query(
+        `UPDATE reservas SET estado = 'abordada' WHERE id = $1`,
+        [p.reservaId],
+      );
+
+      const res = await e
+        .api()
+        .get(`/api/v1/reservas/${p.reservaId}/conductor`)
+        .set(h.r.b.conToken(p.token))
+        .expect(404);
+
+      expect(res.body.codigo).toBe('RESERVA_NO_ENCONTRADA');
+    });
+  });
 });
