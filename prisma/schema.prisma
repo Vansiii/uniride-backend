@@ -412,6 +412,7 @@ model Reserva {
   desafios       DesafioHandshake[]
   pruebas        PruebaPresencia[]
   bloqueos       BloqueoPreventivo[]
+  calificaciones Calificacion[]
 
   @@index([viajeId, estado])
   @@index([pasajeroId, creadoEn(sort: Desc)])
@@ -530,4 +531,23 @@ model BloqueoPreventivo {
   @@index([usuarioId, venceEn])
   @@index([usuarioParId, venceEn])
   @@map("bloqueos_preventivos")
+}
+
+// --- HU-21: calificaciones (organizacion_id + RLS, A-13; sin edición ni borrado) ---
+
+model Calificacion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizacionId String   @map("organizacion_id") @db.Uuid
+  reservaId      String   @map("reserva_id") @db.Uuid
+  autorId        String   @map("autor_id") @db.Uuid
+  destinatarioId String   @map("destinatario_id") @db.Uuid
+  estrellas      Int
+  comentario     String?
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  reserva Reserva @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+
+  @@unique([reservaId, autorId])
+  @@index([destinatarioId])
+  @@map("calificaciones")
 }

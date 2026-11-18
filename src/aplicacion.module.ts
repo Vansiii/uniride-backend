@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
 import { AutenticacionModule } from './autenticacion/autenticacion.module.js';
 import { BilleteraModule } from './billetera/billetera.module.js';
+import { CalificacionesModule } from './calificaciones/calificaciones.module.js';
 import { FraudeModule } from './fraude/fraude.module.js';
 import { MetricasModule } from './metricas/metricas.module.js';
 import { IdentidadModule } from './identidad/identidad.module.js';
@@ -30,6 +31,7 @@ import { ViajesModule } from './viajes/viajes.module.js';
     ReservasModule,
     PresenciaModule,
     FraudeModule,
+    CalificacionesModule,
     MetricasModule,
   ],
   controllers: [SaludController],
