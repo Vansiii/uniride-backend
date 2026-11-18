@@ -2,7 +2,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { PublicarViajeDto } from './dto/viaje.dto.js';
-import { ViajesService } from './viajes.service.js';
+import { normalizarPalabrasDestino, ViajesService } from './viajes.service.js';
 
 const CONDUCTOR = '11111111-1111-4111-8111-111111111111';
 const ORG = '22222222-2222-4222-8222-222222222222';
@@ -213,6 +213,50 @@ describe('ViajesService.buscar', () => {
       calificacionPromedio: null,
       esNuevo: true,
       miembroDesde: new Date(0),
+    });
+  });
+
+  describe('HU-27 RN-3 · filtro de destino para voz', () => {
+    it('normaliza tildes, artículos y signos (% y _)', () => {
+      expect(normalizarPalabrasDestino('a la UAGRM')).toEqual(['uagrm']);
+      expect(normalizarPalabrasDestino('Módulos, Campus')).toEqual([
+        'modulos',
+        'campus',
+      ]);
+      expect(normalizarPalabrasDestino('de el centro 100%_seguro')).toEqual([
+        'centro',
+        '100',
+        'seguro',
+      ]);
+      expect(normalizarPalabrasDestino('a la de')).toEqual([]);
+      expect(normalizarPalabrasDestino('')).toEqual([]);
+      expect(normalizarPalabrasDestino(undefined)).toEqual([]);
+    });
+
+    it('sin destino o sin palabras útiles no añade filtro de destino a queryRaw', async () => {
+      const { servicio, tx } = crear();
+      await servicio.buscar(ORG, 'u1', consulta());
+      const llamadaSql = (tx.$queryRaw.mock.calls[0][0] as string[]).join(' ');
+      expect(llamadaSql).not.toContain('filtroDestino');
+      expect(llamadaSql).not.toContain('unnest');
+
+      tx.$queryRaw.mockClear();
+      await servicio.buscar(ORG, 'u1', consulta({ destino: 'a la de' }));
+      const llamadaArticulos = (tx.$queryRaw.mock.calls[0][0] as string[]).join(
+        ' ',
+      );
+      expect(llamadaArticulos).not.toContain('unnest');
+    });
+
+    it('con destino incluye NOT EXISTS con unnest y translate en queryRaw', async () => {
+      const { servicio, tx } = crear();
+      await servicio.buscar(ORG, 'u1', consulta({ destino: 'a la UAGRM' }));
+      const args = tx.$queryRaw.mock.calls[0];
+      const sqlCompleto = JSON.stringify(args);
+      expect(sqlCompleto).toContain('unnest');
+      expect(sqlCompleto).toContain(
+        "translate(lower(v.destino_nombre), 'áéíóúü', 'aeiouu') NOT LIKE '%' || p || '%'",
+      );
     });
   });
 });

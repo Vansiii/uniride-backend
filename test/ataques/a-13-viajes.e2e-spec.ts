@@ -53,6 +53,17 @@ describe('A-13 · aislamiento de viajes (e2e)', () => {
         ).toEqual([]);
       });
 
+      it('con filtro de destino: un miembro de otra organización no lo encuentra aunque coincida el destino', async () => {
+        const ajeno = await v.conductor(b);
+        expect(
+          ids(
+            await v
+              .buscar(ajeno.token, consulta({ destino: 'Módulos UAGRM' }))
+              .expect(200),
+          ),
+        ).toEqual([]);
+      });
+
       it('uno de la misma organización sí', async () => {
         const vecino = await v.conductor(a);
         const r = await v.buscar(vecino.token, consulta()).expect(200);

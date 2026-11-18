@@ -130,7 +130,8 @@ export class ViajesController {
   })
   @ApiBadRequestResponse({
     type: ErrorDto,
-    description: '`COORDENADAS_INVALIDAS` o `VALIDACION_FALLIDA` (hora).',
+    description:
+      '`COORDENADAS_INVALIDAS` o `VALIDACION_FALLIDA` (hora o destino > 100).',
   })
   @ApiForbiddenResponse({
     type: ErrorDto,
