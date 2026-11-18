@@ -157,6 +157,7 @@ describe('HU-18 · buscar viajes (e2e)', () => {
             nombre: 'Juan',
             verificado: true,
             calificacionPromedio: null,
+            calificaciones: 0,
             esNuevo: true,
             miembroDesde: expect.any(String),
           },

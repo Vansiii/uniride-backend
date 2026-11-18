@@ -25,6 +25,8 @@ const SIN_BIOMETRIA: Record<string, string> = {
     'renueva el código cada 25 s con la llave de trayecto (D-22): la huella se pidió al registrarla, que es acción sensible',
   'POST /api/v1/viajes/:id/posiciones':
     'HU-23 CA-1: una posición cada 15 s, también con la pantalla apagada, firmada con la llave de trayecto del conductor (D-22); no mueve dinero ni cambia estados',
+  'POST /api/v1/reservas/:id/calificaciones':
+    'HU-21: una calificación no mueve dinero, no cambia estados ni crea saldo (RN-5); basta la sesión, y solo la ve quien califica o el calificado',
   'POST /api/v1/reservas/:id/posiciones':
     'HU-23 CA-1: lo mismo con la llave de trayecto del pasajero, registrada con huella en el abordaje',
 };
