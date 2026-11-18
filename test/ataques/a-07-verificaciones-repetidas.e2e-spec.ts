@@ -88,7 +88,10 @@ describe('A-07 · verificaciones fallidas repetidas (e2e)', () => {
 
   it('A-08: ninguna ruta de la API toca los bloqueos y el rol de la API no puede cambiarlos ni borrarlos', async () => {
     const rutas = rutasRegistradas(e.app).map((r) => r.clave.toLowerCase());
-    expect(rutas.filter((r) => r.includes('bloqueo'))).toEqual([]);
+    // HU-26: solo existe la lectura (GET); ninguna ruta de bloqueos escribe.
+    expect(
+      rutas.filter((r) => r.includes('bloqueo') && !r.startsWith('get ')),
+    ).toEqual([]);
 
     const { p } = await bloqueada();
     const api = new pg.Client({ connectionString: process.env.DATABASE_URL });
