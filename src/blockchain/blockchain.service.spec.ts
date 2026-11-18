@@ -106,13 +106,41 @@ describe('crearCadena', () => {
   it.each([
     ['sin llave', {}],
     ['con RELAYER_LLAVE_PRIVADA', { RELAYER_LLAVE_PRIVADA: LLAVE }],
-    ['con KMS_LLAVE_RELAYER_ID', { KMS_LLAVE_RELAYER_ID: 'alias/relayer' }],
+    ['solo KMS_LLAVE_RELAYER_ID', { KMS_LLAVE_RELAYER_ID: 'alias/relayer' }],
     // HU-24 CA-9 / A-12: la llave del verificador tampoco se acepta en producción.
     ['con VERIFICADOR_LLAVE_PRIVADA', { VERIFICADOR_LLAVE_PRIVADA: LLAVE }],
   ])('en producción no arranca sin el firmante KMS: %s', (_, extra) => {
     expect(() =>
       crearCadena({ ...valido, ...extra, NODE_ENV: 'production' }),
     ).toThrow('firmante KMS');
+  });
+
+  it('en producción arranca con las dos llaves KMS distintas', () => {
+    expect(
+      crearCadena({
+        ...valido,
+        NODE_ENV: 'production',
+        KMS_LLAVE_RELAYER_ID: 'alias/relayer',
+        KMS_LLAVE_VERIFICADOR_ID: 'alias/verificador',
+      }),
+    ).toBeInstanceOf(CadenaReal);
+  });
+
+  it('A-09/A-12: en producción rechaza la misma llave KMS o llaves privadas junto a KMS', () => {
+    const kms = {
+      ...valido,
+      NODE_ENV: 'production',
+      KMS_LLAVE_RELAYER_ID: 'alias/a',
+      KMS_LLAVE_VERIFICADOR_ID: 'alias/a',
+    };
+    expect(() => crearCadena(kms)).toThrow('otra llave');
+    expect(() =>
+      crearCadena({
+        ...kms,
+        KMS_LLAVE_VERIFICADOR_ID: 'alias/b',
+        RELAYER_LLAVE_PRIVADA: LLAVE,
+      }),
+    ).toThrow('no se aceptan');
   });
 
   it('A-09: rechaza la misma llave para relayer y verificador', () => {
