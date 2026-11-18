@@ -185,7 +185,7 @@ describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () =>
       const pb = enB.pasajeros[0];
 
       // Pasajero de A intenta consultar la reserva de B
-      const res = await e()
+      const res = await e
         .api()
         .get(`/api/v1/reservas/${pb.reservaId}/conductor`)
         .set(h.r.b.conToken(pa.token))
@@ -199,7 +199,7 @@ describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () =>
       const [p1, p2] = s.pasajeros;
 
       // P2 intenta consultar la reserva de P1
-      const res = await e()
+      const res = await e
         .api()
         .get(`/api/v1/reservas/${p1.reservaId}/conductor`)
         .set(h.r.b.conToken(p2.token))
@@ -213,11 +213,12 @@ describe('A-13 · presencia entre organizaciones y reservas ajenas (e2e)', () =>
       const p = s.pasajeros[0];
 
       // Simulamos que la reserva pasó a 'abordada'
-      await e.bd.query(`UPDATE reservas SET estado = 'abordada' WHERE id = $1`, [
-        p.reservaId,
-      ]);
+      await e.bd.query(
+        `UPDATE reservas SET estado = 'abordada' WHERE id = $1`,
+        [p.reservaId],
+      );
 
-      const res = await e()
+      const res = await e
         .api()
         .get(`/api/v1/reservas/${p.reservaId}/conductor`)
         .set(h.r.b.conToken(p.token))

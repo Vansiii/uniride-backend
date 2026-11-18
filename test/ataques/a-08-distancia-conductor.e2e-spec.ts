@@ -24,7 +24,7 @@ describe('A-08 · distancia del conductor sin sesión válida o sin membresía (
     const s = await h.escenario(org);
     const p = s.pasajeros[0];
 
-    const res = await e()
+    const res = await e
       .api()
       .get(`/api/v1/reservas/${p.reservaId}/conductor`)
       .set('X-Organizacion-Id', org)
@@ -37,7 +37,7 @@ describe('A-08 · distancia del conductor sin sesión válida o sin membresía (
     const s = await h.escenario(org);
     const p = s.pasajeros[0];
 
-    const res = await e()
+    const res = await e
       .api()
       .get(`/api/v1/reservas/${p.reservaId}/conductor`)
       .set('Authorization', 'Bearer token_invalido_totalmente')
@@ -51,16 +51,16 @@ describe('A-08 · distancia del conductor sin sesión válida o sin membresía (
     const s = await h.escenario(org);
     const p = s.pasajeros[0];
 
-    // Creamos otra organización y un usuario que pertenece a la otra
-    const otraOrg = (await h.r.v.organizacion('A08 Otra Org')).id;
-    const externo = await h.r.pasajero(otraOrg);
+    // Su membresía deja de estar aprobada: el token sigue vigente, pero ya no pertenece a la organización.
+    await e.bd.query(
+      `UPDATE membresias SET estado = 'rechazada' WHERE usuario_id = $1`,
+      [p.id],
+    );
 
-    // El externo intenta consultar con X-Organizacion-Id de org (donde no tiene membresía)
-    const res = await e()
+    const res = await e
       .api()
       .get(`/api/v1/reservas/${p.reservaId}/conductor`)
-      .set('Authorization', `Bearer ${externo.token}`)
-      .set('X-Organizacion-Id', org)
+      .set(h.r.b.conToken(p.token))
       .expect(403);
 
     expect(res.body.codigo).toBe('NO_AUTORIZADO');
@@ -71,12 +71,14 @@ describe('A-08 · distancia del conductor sin sesión válida o sin membresía (
     const l = await h.llaveConductor(s);
     const p = s.pasajeros[0];
 
-    await h.desafio(s.conductor.token, s.viajeId, l, {
-      tipo: 'abordaje',
-      posicion: posicion({ lat: ENCUENTRO.lat + 0.0018 }),
-    }).expect(201);
+    await h
+      .desafio(s.conductor.token, s.viajeId, l, {
+        tipo: 'abordaje',
+        posicion: posicion({ lat: ENCUENTRO.lat + 0.0018 }),
+      })
+      .expect(201);
 
-    const { body } = await e()
+    const { body } = await e
       .api()
       .get(`/api/v1/reservas/${p.reservaId}/conductor`)
       .set(h.r.b.conToken(p.token))

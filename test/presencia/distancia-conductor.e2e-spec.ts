@@ -22,7 +22,7 @@ describe('HU-28 · distancia del conductor (e2e)', () => {
   });
 
   const consultar = (token: string, reservaId: string) =>
-    e()
+    e
       .api()
       .get(`/api/v1/reservas/${reservaId}/conductor`)
       .set(h.r.b.conToken(token));
@@ -48,10 +48,12 @@ describe('HU-28 · distancia del conductor (e2e)', () => {
     // Conductor emite desafío a ~300 m del punto de encuentro
     // 0,0027° latitud ≈ 300 m
     const pos = posicion({ lat: ENCUENTRO.lat + 0.0027 });
-    await h.desafio(s.conductor.token, s.viajeId, l, {
-      tipo: 'abordaje',
-      posicion: pos,
-    }).expect(201);
+    await h
+      .desafio(s.conductor.token, s.viajeId, l, {
+        tipo: 'abordaje',
+        posicion: pos,
+      })
+      .expect(201);
 
     const { body } = await consultar(p.token, p.reservaId).expect(200);
     expect(body.disponible).toBe(true);
@@ -70,10 +72,12 @@ describe('HU-28 · distancia del conductor (e2e)', () => {
 
     // Conductor emite desafío a ~20 m del punto de encuentro
     const pos = posicion({ lat: ENCUENTRO.lat + 0.00018 });
-    await h.desafio(s.conductor.token, s.viajeId, l, {
-      tipo: 'abordaje',
-      posicion: pos,
-    }).expect(201);
+    await h
+      .desafio(s.conductor.token, s.viajeId, l, {
+        tipo: 'abordaje',
+        posicion: pos,
+      })
+      .expect(201);
 
     const { body } = await consultar(p.token, p.reservaId).expect(200);
     expect(body.disponible).toBe(true);
@@ -86,7 +90,7 @@ describe('HU-28 · distancia del conductor (e2e)', () => {
     const s = enViaje.s;
 
     // Conductor envía puntos GPS a ~100 m
-    const puntos = traza(2, { hastaHaceS: 5, desplazamientoM: 100 });
+    const puntos = traza(1, { hastaHaceS: 5, desplazamientoM: 100 });
     await h
       .posiciones(
         s.conductor.token,
@@ -96,11 +100,19 @@ describe('HU-28 · distancia del conductor (e2e)', () => {
       )
       .expect(202);
 
-    // Creamos una nueva reserva confirmada en ese viaje (simulando pasajero esperando)
-    // Para probar que la posición tomada de punto_gps funciona:
-    const pNuevo = await h.r.pasajero(org);
-    const { reservaId } = (await h.r.reservar(pNuevo, s.viajeId).expect(201)).body;
-    await h.r.procesar();
+    // El abordaje es reciente: se envejece su desafío para que el punto GPS sea el más nuevo.
+    await e.bd.query(
+      `UPDATE desafios_handshake SET conductor_tomada_en = conductor_tomada_en - interval '1 minute' WHERE viaje_id = $1`,
+      [s.viajeId],
+    );
+
+    // Un viaje en curso ya no admite reservas nuevas: se repone la reserva como confirmada.
+    const pNuevo = s.pasajeros[0];
+    const reservaId = pNuevo.reservaId;
+    await e.bd.query(
+      `UPDATE reservas SET estado = 'confirmada' WHERE id = $1`,
+      [reservaId],
+    );
 
     const { body } = await consultar(pNuevo.token, reservaId).expect(200);
     expect(body.disponible).toBe(true);
