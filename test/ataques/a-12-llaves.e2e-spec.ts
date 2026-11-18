@@ -18,20 +18,30 @@ const EXCEPCIONES: Record<string, string> = {
     'clave de relleno de las pruebas, sin valor fuera de ellas',
 };
 
-/** Archivos versionados del repositorio principal y de cada submódulo que existe en disco. */
+/**
+ * Archivos versionados del backend y, si existen en disco, del repositorio principal y de contratos. En el CI del
+ * backend solo está el propio repositorio.
+ */
 function archivosVersionados(): string[] {
-  const lista = (cwd: string, prefijo: string) =>
-    execFileSync('git', ['ls-files'], {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    })
-      .split('\n')
-      .filter(Boolean)
-      .map((f) => `${prefijo}${f}`);
+  const lista = (cwd: string, prefijo: string): string[] => {
+    try {
+      return execFileSync('git', ['ls-files'], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      })
+        .split(String.fromCharCode(10))
+        .filter(Boolean)
+        .map((f) => `${prefijo}${f}`);
+    } catch {
+      return []; // carpeta ausente o fuera de un repositorio
+    }
+  };
   return [
     ...lista(RAIZ, ''),
     ...['backend', 'contracts'].flatMap((m) => lista(join(RAIZ, m), `${m}/`)),
+    ...lista(join(import.meta.dirname, '..', '..'), 'backend/'),
   ];
 }
 
@@ -63,6 +73,7 @@ describe('PB-05 · A-12 · las llaves no se pueden leer (e2e)', () => {
           hallazgos.push(`${archivo}:${i + 1}`);
       });
     }
+    expect(archivosVersionados().length).toBeGreaterThan(50);
     expect(hallazgos).toEqual([]);
   });
 
