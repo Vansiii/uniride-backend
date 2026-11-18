@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
+import { BloqueosService } from '../fraude/bloqueos.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
 import type {
   BuscarViajesDto,
@@ -99,6 +100,7 @@ export class ViajesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
+    private readonly bloqueos: BloqueosService,
   ) {}
 
   limites(organizacionId: string): Promise<LimitesViajeDto> {
@@ -119,6 +121,8 @@ export class ViajesService {
     organizacionId: string,
     dto: PublicarViajeDto,
   ): Promise<ViajePublicadoDto> {
+    // HU-25 CA-6: una cuenta con bloqueo preventivo no publica.
+    await this.bloqueos.exigirSinBloqueoCuenta(conductorId);
     const vehiculo = await this.prisma.vehiculo.findUnique({
       where: { propietarioId: conductorId },
       select: { id: true, capacidad: true },
@@ -333,6 +337,9 @@ export class ViajesService {
           AND v.fecha_hora_salida BETWEEN ${desde}::timestamptz AND ${hasta}::timestamptz
           AND v.fecha_hora_salida > now()
           AND u.suspendida_en IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM bloqueos_preventivos b
+            WHERE b.tipo = 'cuenta' AND b.usuario_id = v.conductor_id AND b.vence_en > now())
           AND v.conductor_id <> ${usuarioId}::uuid
           AND d.km <= ${RADIO_BUSQUEDA_KM}
           ${filtroDestino}

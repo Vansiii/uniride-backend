@@ -1,3 +1,4 @@
+import { BloqueosService } from '../fraude/bloqueos.service.js';
 import { Injectable } from '@nestjs/common';
 import QRCode from 'qrcode';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
@@ -50,6 +51,7 @@ export class RecargasService {
     private readonly billeteras: BilleteraService,
     private readonly movimientos: MovimientosService,
     private readonly auditoria: AuditoriaService,
+    private readonly bloqueos: BloqueosService,
   ) {}
 
   async crear(
@@ -57,6 +59,8 @@ export class RecargasService {
     monto: number,
   ): Promise<OrdenRecargaCreadaDto> {
     const montoValido = montoDeRecarga(monto);
+    // HU-25 CA-6.
+    await this.bloqueos.exigirSinBloqueoCuenta(usuarioId);
     const { id: billeteraId } = await this.billeteras.exigir(usuarioId);
     const orden = await this.prisma.ordenRecarga.create({
       data: {
@@ -84,6 +88,7 @@ export class RecargasService {
    * trabajo juntos. Las demás, y las repeticiones, responden el estado actual.
    */
   async confirmar(usuarioId: string, id: string): Promise<OrdenRecargaDto> {
+    await this.bloqueos.exigirSinBloqueoCuenta(usuarioId);
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.ordenRecarga.updateMany({
         where: {

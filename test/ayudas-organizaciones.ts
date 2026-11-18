@@ -84,6 +84,10 @@ export async function prepararEntorno(
       'llaves_trayecto',
     ])
       await bd.query(`DELETE FROM ${tabla} WHERE organizacion_id IN (${orgs})`);
+    // HU-25: los bloqueos apuntan a reservas y a usuarios de prueba.
+    await bd.query(
+      `DELETE FROM bloqueos_preventivos WHERE usuario_id IN (${usuarios}) OR usuario_par_id IN (${usuarios})`,
+    );
     await bd.query(
       `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
     );

@@ -1,5 +1,6 @@
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { PrismaService } from '../comun/prisma.service.js';
+import type { BloqueosService } from '../fraude/bloqueos.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { PublicarViajeDto } from './dto/viaje.dto.js';
 import { normalizarPalabrasDestino, ViajesService } from './viajes.service.js';
@@ -54,6 +55,7 @@ function crear(o: { vehiculo?: object | null; solapado?: object | null } = {}) {
     servicio: new ViajesService(
       prisma as unknown as PrismaService,
       auditoria as unknown as AuditoriaService,
+      { exigirSinBloqueoCuenta: vi.fn() } as unknown as BloqueosService,
     ),
   };
 }
