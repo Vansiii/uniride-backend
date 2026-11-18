@@ -1,3 +1,11 @@
+/** Patrones de HU-25 (RN-2, RN-3, RN-4); los comparten el tic de anomalías y las alertas de HU-26. */
+export const PATRONES = [
+  'viajes_repetidos',
+  'sin_desplazamiento',
+  'verificaciones_fallidas',
+] as const;
+export type Patron = (typeof PATRONES)[number];
+
 /** HU-25 RN-11: umbrales fijos en v1; cambiarlos es un cambio de spec. */
 export const HORA_MS = 3_600_000;
 export const DIA_MS = 24 * HORA_MS;
