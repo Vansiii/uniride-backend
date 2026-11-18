@@ -18,10 +18,8 @@ import {
   p1ViajesRepetidos,
   p2SinDesplazamiento,
   p3VerificacionesFallidas,
+  type Patron,
 } from './patrones.js';
-
-type Patron =
-  'viajes_repetidos' | 'sin_desplazamiento' | 'verificaciones_fallidas';
 
 const LOTE = 20;
 
