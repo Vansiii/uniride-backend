@@ -399,6 +399,8 @@ model Reserva {
   motivo            String?
   /// CA-15: pares, coincidencia, velocidad máxima y motivo de la evaluación del trayecto (HU-23).
   evaluacion        Json?
+  /// HU-25: cuándo la revisó el tic de anomalías; nulo si falta.
+  anomaliasEvaluadasEn DateTime? @map("anomalias_evaluadas_en") @db.Timestamptz(3)
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn     DateTime @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
@@ -409,6 +411,7 @@ model Reserva {
   llavesTrayecto LlaveTrayecto[]
   desafios       DesafioHandshake[]
   pruebas        PruebaPresencia[]
+  bloqueos       BloqueoPreventivo[]
 
   @@index([viajeId, estado])
   @@index([pasajeroId, creadoEn(sort: Desc)])
@@ -507,4 +510,24 @@ model PuntoGps {
 
   @@unique([viajeId, usuarioId, tomadaEn], map: "puntos_gps_viaje_usuario_tomada_key")
   @@map("puntos_gps")
+}
+
+// --- HU-25: bloqueos preventivos (de la persona, sin RLS; solo inserción) ---
+
+model BloqueoPreventivo {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo         String
+  usuarioId    String   @map("usuario_id") @db.Uuid
+  usuarioParId String?  @map("usuario_par_id") @db.Uuid
+  patron       String
+  reservaId    String   @map("reserva_id") @db.Uuid
+  venceEn      DateTime @map("vence_en") @db.Timestamptz(3)
+  creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  reserva Reserva @relation(fields: [reservaId], references: [id], onDelete: Restrict)
+
+  @@unique([reservaId, patron, usuarioId])
+  @@index([usuarioId, venceEn])
+  @@index([usuarioParId, venceEn])
+  @@map("bloqueos_preventivos")
 }

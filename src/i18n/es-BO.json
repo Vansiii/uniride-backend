@@ -96,6 +96,8 @@
   "reservas.confirmar.viaje_propio": "No puedes reservar tu propio viaje.",
   "reservas.confirmar.ya_reservado": "Ya tienes una reserva en este viaje.",
   "reservas.confirmar.no_disponible": "Este viaje ya no admite reservas.",
+  "reservas.confirmar.par_bloqueado": "No puedes reservar este viaje por ahora.",
+  "comun.errores.bloqueo_preventivo": "Tu cuenta tiene un bloqueo preventivo. Si crees que es un error, contacta al administrador de tu organización.",
   "presencia.abordaje.codigo_invalido": "Ese código ya no sirve. Escanea el que muestra ahora el conductor.",
   "presencia.abordaje.distancia": "Estás demasiado lejos del conductor para confirmar el abordaje.",
   "presencia.abordaje.ubicacion_simulada": "No pudimos confirmar tu ubicación.",

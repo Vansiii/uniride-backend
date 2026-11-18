@@ -10,6 +10,7 @@ import { MovimientosService } from '../billetera/movimientos.service.js';
 import type { EstadoMovimiento } from '../billetera/dto/saldo.dto.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
+import { BloqueosService } from '../fraude/bloqueos.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
 import { politicaCancelacion } from './politica-cancelacion.js';
 import type {
@@ -91,6 +92,7 @@ export class ReservasService {
     private readonly movimientos: MovimientosService,
     private readonly auditoria: AuditoriaService,
     private readonly blockchain: BlockchainService,
+    private readonly bloqueos: BloqueosService,
   ) {}
 
   /**
@@ -105,6 +107,8 @@ export class ReservasService {
     claveIdempotencia: string,
   ): Promise<{ reserva: ReservaCreadaDto; creada: boolean }> {
     const billetera = await this.billeteras.exigir(pasajeroId);
+    // HU-25 CA-6: una cuenta con bloqueo preventivo no crea reservas nuevas.
+    await this.bloqueos.exigirSinBloqueoCuenta(pasajeroId);
     try {
       return await this.prisma.enOrganizacion(organizacionId, async (tx) => {
         // Serializa las reservas de la misma persona: dos a la vez no gastan el mismo saldo (CA-5) ni se duplican (CA-4).
@@ -149,8 +153,12 @@ export class ReservasService {
           );
         if (viaje.conductorId === pasajeroId)
           throw conflicto('VIAJE_PROPIO', 'reservas.confirmar.viaje_propio');
+        // HU-25 CA-5 y RN-9: sin decir el motivo.
+        if (await this.bloqueos.parBloqueado(viaje.conductorId, pasajeroId, tx))
+          throw conflicto('PAR_BLOQUEADO', 'reservas.confirmar.par_bloqueado');
         if (
           viaje.conductor.suspendidaEn ||
+          (await this.bloqueos.finBloqueoCuenta(viaje.conductorId, tx)) ||
           !ESTADOS_RESERVABLES.includes(viaje.estado) ||
           viaje.fechaHoraSalida.getTime() <= Date.now() ||
           !viaje.precioPorAsiento.mod(PASO_PRECIO).isZero()

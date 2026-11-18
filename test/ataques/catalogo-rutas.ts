@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
+import { OrganizacionGuard } from '../../src/comun/organizacion.guard.js';
 import {
   ACCION_SENSIBLE,
   FirmaDispositivoGuard,
@@ -35,6 +36,8 @@ export interface RutaRegistrada {
   ruta: string;
   accionSensible?: string;
   conFirma: boolean;
+  /** PB-05 CA-7: la ruta exige una membresía aprobada en la organización activa (`OrganizacionGuard`). */
+  conOrganizacion: boolean;
 }
 
 const unir = (...partes: string[]) =>
@@ -72,6 +75,7 @@ export function rutasRegistradas(app: INestApplication): RutaRegistrada[] {
               ruta: completa,
               accionSensible: Reflect.getMetadata(ACCION_SENSIBLE, manejador),
               conFirma: guards.includes(FirmaDispositivoGuard),
+              conOrganizacion: guards.includes(OrganizacionGuard),
             });
           }
       }
