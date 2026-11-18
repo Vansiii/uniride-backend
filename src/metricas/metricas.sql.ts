@@ -10,20 +10,25 @@ export interface Agregado {
   distanciaKm: number;
 }
 
+export interface AgregadoOrganizacion extends Agregado {
+  organizacionId: string;
+}
+
 /**
  * Consulta única de HU-32 y HU-33. Una reserva cuenta cuando está `pagada`; su fecha es la del movimiento
  * `liberacion_viaje` (no `actualizado_en`, que otros procesos también tocan). La distancia es la recta entre origen y
- * destino (Haversine) porque el viaje no guarda la ruta. `organizacionId` nulo = todas (solo con `comoSuperAdmin`).
+ * destino (Haversine) porque el viaje no guarda la ruta. `organizacionId` nulo = todas (solo con `comoSuperAdmin`);
+ * devuelve una fila por organización con actividad.
  */
-export async function agregarPagadas(
+export async function agregarPorOrganizacion(
   tx: Transaccion,
   organizacionId: string | null,
   desde: Date | null,
-): Promise<Agregado> {
-  const [fila] = await tx.$queryRaw<
-    { viajes: bigint; pasajeros: bigint; km: number }[]
+): Promise<AgregadoOrganizacion[]> {
+  const filas = await tx.$queryRaw<
+    { org: string; viajes: bigint; pasajeros: bigint; km: number }[]
   >`
-    SELECT count(DISTINCT r.viaje_id) AS viajes, count(*) AS pasajeros,
+    SELECT r.organizacion_id AS org, count(DISTINCT r.viaje_id) AS viajes, count(*) AS pasajeros,
       coalesce(sum(2 * 6371 * asin(sqrt(
         power(sin(radians(v.destino_lat::float8 - v.origen_lat::float8) / 2), 2) +
         cos(radians(v.origen_lat::float8)) * cos(radians(v.destino_lat::float8)) *
@@ -35,12 +40,24 @@ export async function agregarPagadas(
       WHERE m.reserva_id = r.id AND m.tipo = 'liberacion_viaje') p ON p.pagada_en IS NOT NULL
     WHERE r.estado = 'pagada'
       AND (${organizacionId}::uuid IS NULL OR r.organizacion_id = ${organizacionId}::uuid)
-      AND (${desde}::timestamptz IS NULL OR p.pagada_en >= ${desde}::timestamptz)`;
-  return {
-    viajesPagados: Number(fila.viajes),
-    pasajeros: Number(fila.pasajeros),
-    distanciaKm: fila.km,
-  };
+      AND (${desde}::timestamptz IS NULL OR p.pagada_en >= ${desde}::timestamptz)
+    GROUP BY r.organizacion_id`;
+  return filas.map((f) => ({
+    organizacionId: f.org,
+    viajesPagados: Number(f.viajes),
+    pasajeros: Number(f.pasajeros),
+    distanciaKm: f.km,
+  }));
+}
+
+/** HU-32: el agregado de una sola organización (ceros si no hay actividad). */
+export async function agregarPagadas(
+  tx: Transaccion,
+  organizacionId: string,
+  desde: Date | null,
+): Promise<Agregado> {
+  const [fila] = await agregarPorOrganizacion(tx, organizacionId, desde);
+  return fila ?? { viajesPagados: 0, pasajeros: 0, distanciaKm: 0 };
 }
 
 /** CO₂ en kg con un decimal, redondeado una sola vez al final. */
