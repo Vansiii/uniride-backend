@@ -65,7 +65,12 @@ describe('PresenciaService.distanciaConductor (HU-28)', () => {
   it('lanza 404 RESERVA_NO_ENCONTRADA si la reserva no existe', async () => {
     const servicio = crearServicio({ reserva: null });
     await expect(
-      servicio.distanciaConductor('pasajero-1', 'org-1', 'reserva-inexistente', AHORA),
+      servicio.distanciaConductor(
+        'pasajero-1',
+        'org-1',
+        'reserva-inexistente',
+        AHORA,
+      ),
     ).rejects.toMatchObject({
       codigo: 'RESERVA_NO_ENCONTRADA',
       status: 404,
@@ -169,7 +174,12 @@ describe('PresenciaService.distanciaConductor (HU-28)', () => {
         tomadaEn: new Date(AHORA.getTime() - 60_000),
       },
     });
-    const r60 = await s60.distanciaConductor('pasajero-1', 'org-1', 'reserva-1', AHORA);
+    const r60 = await s60.distanciaConductor(
+      'pasajero-1',
+      'org-1',
+      'reserva-1',
+      AHORA,
+    );
     expect(r60.disponible).toBe(true);
     expect(r60.haceSegundos).toBe(60);
 
@@ -180,7 +190,12 @@ describe('PresenciaService.distanciaConductor (HU-28)', () => {
         tomadaEn: new Date(AHORA.getTime() - 61_000),
       },
     });
-    const r61 = await s61.distanciaConductor('pasajero-1', 'org-1', 'reserva-1', AHORA);
+    const r61 = await s61.distanciaConductor(
+      'pasajero-1',
+      'org-1',
+      'reserva-1',
+      AHORA,
+    );
     expect(r61.disponible).toBe(false);
     expect(r61.distanciaM).toBeNull();
     expect(r61.haceSegundos).toBeNull();
