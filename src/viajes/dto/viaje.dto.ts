@@ -186,10 +186,13 @@ class ConductorEncontradoDto extends ConductorPublicoDto {
   @ApiProperty({
     type: Number,
     nullable: true,
-    description: '`null` mientras no haya reseñas (D-17).',
+    description:
+      '`null` con menos de 3 calificaciones (D-17); desde 3, el promedio con 1 decimal (HU-21).',
   })
   calificacionPromedio!: number | null;
-  @ApiProperty({ description: 'Sin reseñas todavía (D-17).' })
+  @ApiProperty({ description: 'Cantidad de calificaciones recibidas.' })
+  calificaciones!: number;
+  @ApiProperty({ description: 'Menos de 3 calificaciones (D-17).' })
   esNuevo!: boolean;
   @ApiProperty({
     type: String,

@@ -78,6 +78,8 @@ export function normalizarPalabrasDestino(texto?: string): string[] {
     .filter((palabra) => palabra.length > 0 && !ARTICULOS_DESTINO.has(palabra));
 }
 
+const MINIMO_CALIFICACIONES = 3;
+
 interface FilaBusqueda {
   id: string;
   origen_nombre: string;
@@ -89,6 +91,8 @@ interface FilaBusqueda {
   nombre_completo: string;
   miembro_desde: Date;
   verificado: boolean;
+  promedio: number | null;
+  calificaciones: number;
   placa: string;
   marca: string;
   modelo: string;
@@ -318,11 +322,14 @@ export class ViajesService {
       (tx) => tx.$queryRaw<FilaBusqueda[]>`
         SELECT v.id, v.origen_nombre, d.km::float8 AS distancia_km, v.destino_nombre, v.fecha_hora_salida,
                v.cupos_disponibles, v.precio_por_asiento, u.nombre_completo, u.creado_en AS miembro_desde,
-               COALESCE(i.estado = 'verificada', false) AS verificado, a.placa, a.marca, a.modelo, a.color
+               COALESCE(i.estado = 'verificada', false) AS verificado, pc.promedio::float8 AS promedio,
+               COALESCE(pc.cantidad, 0)::int AS calificaciones, a.placa, a.marca, a.modelo, a.color
         FROM viajes v
         JOIN usuarios u ON u.id = v.conductor_id
         JOIN vehiculos a ON a.id = v.vehiculo_id
         LEFT JOIN identidades i ON i.usuario_id = v.conductor_id
+        -- HU-21: promedio público de la persona (todas sus organizaciones), solo agregados.
+        LEFT JOIN LATERAL promedio_calificacion(v.conductor_id) pc ON true
         -- Haversine. El redondeo puede dejar el argumento apenas fuera de [-1, 1], y acos fallaría.
         CROSS JOIN LATERAL (
           SELECT 6371 * acos(GREATEST(-1, LEAST(1,
@@ -357,9 +364,11 @@ export class ViajesService {
       conductor: {
         nombre: nombreDePila(f.nombre_completo),
         verificado: f.verificado,
-        // ponytail: sin reseñas hasta HU-21 (D-17); entonces se leen de su tabla.
-        calificacionPromedio: null,
-        esNuevo: true,
+        // HU-21 CA-6: desde 3 calificaciones se muestra el promedio; antes, «Nuevo» (D-17).
+        calificacionPromedio:
+          f.calificaciones >= MINIMO_CALIFICACIONES ? f.promedio : null,
+        calificaciones: f.calificaciones,
+        esNuevo: f.calificaciones < MINIMO_CALIFICACIONES,
         miembroDesde: f.miembro_desde,
       },
       vehiculo: {

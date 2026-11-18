@@ -88,6 +88,10 @@ export async function prepararEntorno(
     await bd.query(
       `DELETE FROM bloqueos_preventivos WHERE usuario_id IN (${usuarios}) OR usuario_par_id IN (${usuarios})`,
     );
+    // HU-21: las calificaciones apuntan a reservas.
+    await bd.query(
+      `DELETE FROM calificaciones WHERE organizacion_id IN (${orgs})`,
+    );
     await bd.query(
       `DELETE FROM reservas WHERE organizacion_id IN (${orgs}) OR pasajero_id IN (${usuarios})`,
     );

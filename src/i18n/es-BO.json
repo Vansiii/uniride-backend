@@ -128,5 +128,8 @@
   "billetera.reembolso.pendiente": "Tu reembolso está pendiente de confirmación en la red.",
   "billetera.movimiento.compensacion_cancelacion": "Compensación por cancelación",
   "reservas.estado.cancelada": "Cancelada",
-  "reservas.estado.expirada": "Expirada"
+  "reservas.estado.expirada": "Expirada",
+  "calificaciones.crear.no_pagada": "Solo puedes calificar un viaje ya pagado.",
+  "calificaciones.crear.plazo_vencido": "Ya pasó el plazo para calificar.",
+  "calificaciones.crear.ya_calificada": "Ya calificaste este viaje."
 }

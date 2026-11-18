@@ -200,6 +200,8 @@ describe('ViajesService.buscar', () => {
         nombre_completo: '  Juan  Carlos Pérez ',
         miembro_desde: new Date(0),
         verificado: true,
+        promedio: null,
+        calificaciones: 0,
         placa: '1234ABC',
         marca: 'Kia',
         modelo: 'Rio',
@@ -213,6 +215,7 @@ describe('ViajesService.buscar', () => {
       nombre: 'Juan',
       verificado: true,
       calificacionPromedio: null,
+      calificaciones: 0,
       esNuevo: true,
       miembroDesde: new Date(0),
     });
