@@ -11,6 +11,7 @@ import type { EstadoMovimiento } from '../billetera/dto/saldo.dto.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje, Prisma } from '../generated/prisma/client.js';
+import { politicaCancelacion } from './politica-cancelacion.js';
 import type {
   EstadoReserva,
   MisReservasDto,
@@ -158,8 +159,13 @@ export class ReservasService {
             'VIAJE_NO_DISPONIBLE',
             'reservas.confirmar.no_disponible',
           );
+        // RN-1: reservar otra vez tras cancelar o expirar la reserva previa (HU-20).
         const yaReservado = await tx.reserva.findFirst({
-          where: { viajeId, pasajeroId, estado: { not: 'fallida' } },
+          where: {
+            viajeId,
+            pasajeroId,
+            estado: { notIn: ['fallida', 'cancelada', 'expirada'] },
+          },
           select: { id: true },
         });
         if (yaReservado)
@@ -285,7 +291,14 @@ export class ReservasService {
     const movimientos = await this.prisma.movimientoBilletera.findMany({
       where: {
         reservaId,
-        tipo: { in: ['bloqueo_reserva', 'liberacion_viaje'] },
+        tipo: {
+          in: [
+            'bloqueo_reserva',
+            'liberacion_viaje',
+            'reembolso_reserva',
+            'compensacion_cancelacion',
+          ],
+        },
       },
       select: { tipo: true, estado: true, monto: true, hashTx: true },
     });
@@ -299,6 +312,51 @@ export class ReservasService {
         : null;
     // HU-24 CA-1: el pago al conductor, para los dos; es una transacción pública de la red.
     const liberacion = movimientos.find((m) => m.tipo === 'liberacion_viaje');
+
+    // HU-20 CA-1: vista previa de cancelación (solo para el pasajero).
+    let cancelacion = null;
+    if (reserva.pasajeroId === usuarioId) {
+      if (reserva.estado === 'confirmada') {
+        const pol = politicaCancelacion(
+          reserva.monto,
+          reserva.viaje.fechaHoraSalida,
+        );
+        cancelacion = {
+          cancelable: true,
+          porcentajePasajero: pol.porcentajePasajero,
+          montoPasajero: pol.montoPasajero.toFixed(2),
+          montoConductor: pol.montoConductor.toFixed(2),
+          motivo: pol.motivo,
+        };
+      } else {
+        cancelacion = {
+          cancelable: false,
+          porcentajePasajero: 100 as const,
+          montoPasajero: '0.00',
+          montoConductor: '0.00',
+        };
+      }
+    }
+
+    // HU-20: datos del reembolso si fue cancelada o expirada.
+    const movReembolso = movimientos.find(
+      (m) => m.tipo === 'reembolso_reserva',
+    );
+    const movCompensacion = movimientos.find(
+      (m) => m.tipo === 'compensacion_cancelacion',
+    );
+    const reembolso = movReembolso
+      ? {
+          estado: movReembolso.estado as EstadoMovimiento,
+          montoPasajero: movReembolso.monto.toFixed(2),
+          montoConductor: movCompensacion
+            ? movCompensacion.monto.toFixed(2)
+            : '0.00',
+          hashTx: movReembolso.hashTx,
+          exploradorUrl: explorador(movReembolso.hashTx),
+        }
+      : null;
+
     return {
       ...aDto(reserva),
       hashTx,
@@ -311,6 +369,8 @@ export class ReservasService {
             exploradorUrl: explorador(liberacion.hashTx),
           }
         : null,
+      cancelacion,
+      reembolso,
     };
   }
 

@@ -627,3 +627,203 @@ describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
     });
   });
 });
+
+describe('operacion reembolsar_reserva (HU-20, A-09, CA-17)', () => {
+  const HASH = `0x${'ef'.repeat(32)}`;
+  const PAGADOR = '0xPasajero';
+  const CONDUCTOR = '0xC0nductor';
+  function crearReembolso(
+    o: {
+      estadoReserva?: string;
+      escrow?: Partial<ReservaEscrow>;
+      intentos?: number;
+      porcentajeBps?: number;
+      compensacion?: boolean;
+    } = {},
+  ) {
+    const tx = {
+      trabajoOnchain: { update: vi.fn() },
+      movimientoBilletera: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue(o.compensacion ? { id: 'comp-1' } : null),
+      },
+    };
+    const prisma = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        {
+          id: 't1',
+          movimiento_id: 'm1',
+          operacion: 'reembolsar_reserva',
+          intentos: o.intentos ?? 0,
+        },
+      ]),
+      $transaction: vi.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
+      trabajoOnchain: { update: vi.fn() },
+      comoSuperAdmin: vi.fn(),
+      movimientoBilletera: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          id: 'm1',
+          reservaId: 'r1',
+          monto: new Prisma.Decimal('10.50'),
+          metadatos: {
+            porcentajePasajeroBps: o.porcentajeBps ?? 10_000,
+            motivo: 'cancelada_pasajero',
+          },
+          billetera: { direccion: PAGADOR, usuarioId: 'p1' },
+        }),
+      },
+    };
+    prisma.comoSuperAdmin
+      .mockImplementationOnce(() =>
+        Promise.resolve({
+          estado: o.estadoReserva ?? 'cancelada',
+          monto: new Prisma.Decimal('10.50'),
+          viajeId: 'v1',
+          organizacionId: 'o1',
+        }),
+      )
+      .mockImplementation((cb: (t: typeof tx) => unknown) => cb(tx));
+    const cadena = {
+      estadoReservaEscrow: vi.fn().mockResolvedValue({
+        estado: 'bloqueada',
+        pagador: PAGADOR.toLowerCase(),
+        conductor: CONDUCTOR.toLowerCase(),
+        monto: 10n * URC + URC / 2n,
+        ...o.escrow,
+      }),
+      reembolsarReserva: vi.fn().mockResolvedValue(HASH),
+      hashDeReembolso: vi.fn().mockResolvedValue(HASH),
+    };
+    const movimientos = { actualizarEstado: vi.fn() };
+    const auditoria = { registrar: vi.fn() };
+    const estadoViaje = { recalcular: vi.fn() };
+    const servicio = new TrabajosOnchainService(
+      prisma as unknown as PrismaService,
+      { cadena } as unknown as BlockchainService,
+      movimientos as unknown as MovimientosService,
+      auditoria as unknown as AuditoriaService,
+      estadoViaje as unknown as EstadoViajeService,
+    );
+    return {
+      servicio,
+      prisma,
+      tx,
+      cadena,
+      movimientos,
+      auditoria,
+      estadoViaje,
+    };
+  }
+  type Caso = ReturnType<typeof crearReembolso>;
+  const accion = (c: Caso) =>
+    c.auditoria.registrar.mock.calls.map(
+      (llamada: unknown[]) => (llamada[0] as { accion: string }).accion,
+    );
+
+  it('éxito 100 %: reembolsa en cadena, confirma movimiento y registra auditoría', async () => {
+    const c = crearReembolso();
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.reembolsarReserva).toHaveBeenCalledWith(id('r1'), 10_000);
+    expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+      'm1',
+      'confirmado',
+      HASH,
+      c.tx,
+    );
+    expect(c.tx.trabajoOnchain.update).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      data: { estado: 'terminado', ultimoError: null },
+    });
+    expect(accion(c)).toEqual(['reembolso.confirmado']);
+  });
+
+  it('éxito 50/50: si existe compensación para el conductor, también la confirma con el mismo hash', async () => {
+    const c = crearReembolso({ porcentajeBps: 5_000, compensacion: true });
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.reembolsarReserva).toHaveBeenCalledWith(id('r1'), 5_000);
+    expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+      'm1',
+      'confirmado',
+      HASH,
+      c.tx,
+    );
+    expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+      'comp-1',
+      'confirmado',
+      HASH,
+      c.tx,
+    );
+  });
+
+  it('idempotencia: si el escrow ya dice reembolsada recupera el hash sin llamar a reembolsarReserva', async () => {
+    const c = crearReembolso({ escrow: { estado: 'reembolsada' } });
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    expect(c.cadena.hashDeReembolso).toHaveBeenCalledWith(id('r1'));
+    expect(c.cadena.reembolsarReserva).not.toHaveBeenCalled();
+    expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+      'm1',
+      'confirmado',
+      HASH,
+      c.tx,
+    );
+    expect(accion(c)).toEqual(['reembolso.confirmado']);
+  });
+
+  it.each([['confirmada'], ['abordada'], ['verificada'], ['pagada']])(
+    'A-09: reserva en estado %s no se reembolsa y se rechaza',
+    async (estadoReserva) => {
+      const c = crearReembolso({ estadoReserva });
+      await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+      expect(c.cadena.reembolsarReserva).not.toHaveBeenCalled();
+      expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
+        'm1',
+        'fallido',
+        undefined,
+        c.tx,
+      );
+      expect(accion(c)).toEqual(['reembolso.rechazado']);
+    },
+  );
+
+  it.each([
+    ['liberada', { estado: 'liberada' }],
+    ['nunca bloqueada', { estado: 'ninguno', pagador: '', monto: 0n }],
+    ['para otro pagador', { pagador: '0xotro' }],
+    ['por otro monto', { monto: 99n * URC }],
+  ])(
+    'A-09: escrow incompatible (%s): no reembolsa, falla permanente con alerta',
+    async (_caso, escrow) => {
+      const c = crearReembolso({ escrow });
+      await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+      expect(c.cadena.reembolsarReserva).not.toHaveBeenCalled();
+      expect(accion(c)).toEqual(['reembolso.imposible']);
+      expect(c.tx.trabajoOnchain.update).toHaveBeenCalledWith({
+        where: { id: 't1' },
+        data: { estado: 'terminado', ultimoError: 'reembolso.imposible' },
+      });
+    },
+  );
+
+  it('CA-17: red caída: suma intento y a los 5 queda alerta reembolso.atascado', async () => {
+    const c = crearReembolso({ intentos: 4 });
+    c.cadena.reembolsarReserva.mockRejectedValue(
+      Object.assign(new Error('caído https://nodo.test/clave-rpc'), {
+        code: 'SERVER_ERROR',
+      }),
+    );
+    await expect(c.servicio.procesarPendientes()).resolves.toBe(0);
+    expect(c.movimientos.actualizarEstado).not.toHaveBeenCalled();
+    const datos = c.tx.trabajoOnchain.update.mock.calls[0][0].data;
+    expect(datos).toMatchObject({ intentos: 5, ultimoError: 'SERVER_ERROR' });
+    expect(datos.estado).toBeUndefined();
+    expect(c.auditoria.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: 'reembolso.atascado',
+        entidadId: 'r1',
+        organizacionId: 'o1',
+      }),
+      c.tx,
+    );
+  });
+});

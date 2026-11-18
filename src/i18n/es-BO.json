@@ -114,5 +114,17 @@
   "presencia.bajada.senal_gps": "La señal de ubicación es débil. Busca un lugar abierto e inténtalo de nuevo.",
   "presencia.bajada.servicio_no_disponible": "No pudimos verificar el teléfono en este momento. Inténtalo de nuevo.",
   "presencia.trayecto.viaje_no_en_curso": "Este viaje no está en curso o ya no lleva pasajeros.",
-  "presencia.trayecto.no_abordada": "Esta reserva ya no está en viaje: dejamos de compartir tu ubicación."
+  "presencia.trayecto.no_abordada": "Esta reserva ya no está en viaje: dejamos de compartir tu ubicación.",
+  "notificaciones.viaje_cancelado.asunto": "Viaje cancelado por el conductor",
+  "notificaciones.viaje_cancelado.cuerpo": "Hola {nombre},\n\nEl conductor canceló el viaje previsto para {fecha}.\nTe devolvimos {monto} URC a tu saldo disponible.",
+  "reservas.cancelar.politica_cambio": "Cambió la política de devolución según la hora de salida. Revisa el nuevo porcentaje y confirma.",
+  "reservas.cancelar.no_cancelable": "Esta reserva ya no se puede cancelar.",
+  "viajes.cancelar.no_cancelable": "Este viaje ya no se puede cancelar.",
+  "reservas.cancelar.pendiente": "Tu reserva todavía se está confirmando. Intenta en unos segundos.",
+  "reservas.detalle.no_encontrada": "No encontramos esta reserva.",
+  "viajes.detalle.no_encontrado": "No encontramos este viaje.",
+  "billetera.reembolso.pendiente": "Tu reembolso está pendiente de confirmación en la red.",
+  "billetera.movimiento.compensacion_cancelacion": "Compensación por cancelación",
+  "reservas.estado.cancelada": "Cancelada",
+  "reservas.estado.expirada": "Expirada"
 }

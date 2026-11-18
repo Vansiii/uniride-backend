@@ -175,6 +175,39 @@ describe('A-08 · acciones sensibles sin la firma del teléfono del dueño (e2e)
         },
       };
     },
+    'reserva.cancelar': async () => {
+      const c = await rs.conductor(organizacionId);
+      const viajeId = await rs.publicar(c);
+      const p = await rs.pasajero(organizacionId);
+      const { body } = await rs.reservar(p, viajeId).expect(201);
+      await rs.procesar();
+      return {
+        usuarioId: p.id,
+        token: p.token,
+        dispositivo: p.dispositivo,
+        ruta: rs.rutaCancelarReserva(body.reservaId),
+        cuerpo: { porcentajeEsperado: 100 },
+        exito: 200,
+        auditoria: 'reserva.cancelada',
+        sinEfecto: async () =>
+          expect(await pr.estadoReserva(body.reservaId)).toBe('confirmada'),
+      };
+    },
+    'viaje.cancelar': async () => {
+      const c = await rs.conductor(organizacionId);
+      const viajeId = await rs.publicar(c);
+      return {
+        usuarioId: c.id,
+        token: c.token,
+        dispositivo: c.dispositivo,
+        ruta: rs.rutaCancelarViaje(viajeId),
+        cuerpo: {},
+        exito: 200,
+        auditoria: 'viaje.cancelado',
+        sinEfecto: async () =>
+          expect((await rs.viaje(viajeId)).estado).toBe('publicado'),
+      };
+    },
   };
 
   beforeAll(async () => {

@@ -36,11 +36,14 @@ const ABI_ESCROW = [
   'function bloquear(bytes32 idReserva, address pagador, address conductor, uint256 monto, uint256 plazo, uint8 v, bytes32 r, bytes32 s)',
   'function reservas(bytes32) view returns (address pagador, address conductor, uint256 monto, uint8 estado, bytes32 hashPrueba)',
   'function liberar(bytes32 idReserva, bytes32 hashPrueba)',
+  'function reembolsar(bytes32 idReserva, uint16 porcentajePasajeroBps)',
   'function hasRole(bytes32 role, address account) view returns (bool)',
   'event ReservaBloqueada(bytes32 indexed idReserva, address indexed pagador, address indexed conductor, uint256 monto)',
   'event PagoLiberado(bytes32 indexed idReserva, address indexed conductor, uint256 monto, bytes32 hashPrueba)',
+  'event ReservaReembolsada(bytes32 indexed idReserva, uint16 porcentajePasajeroBps, uint256 alPasajero, uint256 alConductor)',
   'error ReservaExistente(bytes32 idReserva)',
   'error ReservaNoBloqueada(bytes32 idReserva)',
+  'error PorcentajeInvalido(uint16 porcentaje)',
   'error DatosInvalidos()',
   'error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)',
   'error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)',
@@ -118,6 +121,16 @@ export interface Cadena {
   liberarReserva(idReserva: string, hashPrueba: string): Promise<string>;
   /** Hash de la transacción que liberó la reserva, para cuando la respuesta se perdió. */
   hashDeLiberacion(idReserva: string): Promise<string>;
+  /**
+   * HU-20: reembolsa al pasajero (y opcionalmente compensa al conductor) desde el escrow, firmado por la cuenta
+   * verificadora (ROL_VERIFICADOR), según el porcentaje en puntos básicos (10000 o 5000).
+   */
+  reembolsarReserva(
+    idReserva: string,
+    porcentajePasajeroBps: number,
+  ): Promise<string>;
+  /** Hash de la transacción que reembolsó la reserva, para cuando la respuesta se perdió. */
+  hashDeReembolso(idReserva: string): Promise<string>;
   exploradorUrl(direccion: string): string | null;
   exploradorTxUrl(hashTx: string): string | null;
 }
@@ -319,6 +332,28 @@ export class CadenaReal implements Cadena {
     );
   }
 
+  async reembolsarReserva(
+    idReserva: string,
+    porcentajePasajeroBps: number,
+  ): Promise<string> {
+    if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
+    if (!this.verificador)
+      throw new Error('VERIFICADOR_LLAVE_PRIVADA no está configurada');
+    const escrow = this.escrow.connect(this.verificador) as Contract;
+    const tx = await escrow.reembolsar(idReserva, porcentajePasajeroBps);
+    await tx.wait(1, TIEMPO_RECIBO_MS);
+    return tx.hash as string;
+  }
+
+  hashDeReembolso(idReserva: string): Promise<string> {
+    if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
+    return this.hashDeEvento(
+      this.escrow,
+      this.escrow.filters.ReservaReembolsada(idReserva),
+      'Reserva reembolsada sin su evento en el nodo',
+    );
+  }
+
   hashDeBloqueo(idReserva: string): Promise<string> {
     if (!this.escrow) throw new Error('DIRECCION_ESCROW no está configurada');
     return this.hashDeEvento(
@@ -375,6 +410,7 @@ export class CadenaSimulada implements Cadena {
       estado: EstadoEscrow;
       hashPrueba: string;
       hashLiberacion?: string;
+      hashReembolso?: string;
     }
   >();
 
@@ -466,6 +502,35 @@ export class CadenaSimulada implements Cadena {
   async hashDeLiberacion(idReserva: string): Promise<string> {
     const hash = this.bloqueos.get(idReserva)?.hashLiberacion;
     if (!hash) throw new Error('Reserva sin liberar');
+    return hash;
+  }
+
+  async reembolsarReserva(
+    idReserva: string,
+    porcentajePasajeroBps: number,
+  ): Promise<string> {
+    if (porcentajePasajeroBps > 10_000)
+      throw Object.assign(new Error('PorcentajeInvalido'), {
+        code: 'CALL_EXCEPTION',
+      });
+    const b = this.bloqueos.get(idReserva);
+    if (b?.estado !== 'bloqueada')
+      throw Object.assign(new Error('ReservaNoBloqueada'), {
+        code: 'CALL_EXCEPTION',
+      });
+    b.estado = 'reembolsada';
+    b.hashReembolso = id(`reembolso-simulado:${idReserva}`);
+    const alPasajero = (b.monto * BigInt(porcentajePasajeroBps)) / 10_000n;
+    const alConductor = b.monto - alPasajero;
+    this.sumar(CadenaSimulada.ESCROW, -b.monto);
+    if (alPasajero > 0n) this.sumar(b.pagador, alPasajero);
+    if (alConductor > 0n) this.sumar(b.conductor, alConductor);
+    return b.hashReembolso;
+  }
+
+  async hashDeReembolso(idReserva: string): Promise<string> {
+    const hash = this.bloqueos.get(idReserva)?.hashReembolso;
+    if (!hash) throw new Error('Reserva sin reembolsar');
     return hash;
   }
 
