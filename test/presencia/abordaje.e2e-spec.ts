@@ -54,6 +54,18 @@ describe('HU-22 · verificación de abordaje (e2e)', () => {
     expect(otro.nonce).not.toBe(body.nonce);
   });
 
+  it('PB-06: tres pasajeros del mismo viaje abordan a la vez: ninguno falla (sin interbloqueo) y el viaje queda en curso', async () => {
+    const s = await h.escenario(org, 3);
+    const l = await h.llaveConductor(s);
+    const codigos = [];
+    for (const _ of s.pasajeros) codigos.push(await h.codigo(s, l));
+    const res = await Promise.all(
+      s.pasajeros.map((p, i) => h.abordar(p, p.reservaId, codigos[i])),
+    );
+    expect(res.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(await h.estadoViaje(s.viajeId)).toBe('en_curso');
+  });
+
   it('una llave nueva revoca la anterior: la vieja ya no emite códigos', async () => {
     const s = await h.escenario(org);
     const vieja = await h.llaveConductor(s);
