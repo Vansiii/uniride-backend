@@ -88,7 +88,7 @@ describe('EstadoViajeService.recalcular (D-23)', () => {
     const c = crear(0);
     await servicio.recalcular(c.transaccion, 'v1');
     expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
-      'FOR UPDATE',
+      'FOR NO KEY UPDATE',
     );
     expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
   });
@@ -106,11 +106,11 @@ describe('EstadoViajeService.cancelar (HU-20 CA-5, RN-4)', () => {
     expect(sql(c)).toContain("IN ('abordada', 'verificada', 'pagada')");
   });
 
-  it('bloquea la fila del viaje con FOR UPDATE antes del update condicional', async () => {
+  it('bloquea la fila del viaje con FOR NO KEY UPDATE antes del update condicional', async () => {
     const c = crear(0);
     await servicio.cancelar(c.transaccion, 'v1');
     expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
-      'FOR UPDATE',
+      'FOR NO KEY UPDATE',
     );
     expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
   });
@@ -135,11 +135,11 @@ describe('EstadoViajeService.expirar (HU-20 CA-6, CA-7, RN-5)', () => {
     );
   });
 
-  it('bloquea la fila del viaje con FOR UPDATE antes del update condicional', async () => {
+  it('bloquea la fila del viaje con FOR NO KEY UPDATE antes del update condicional', async () => {
     const c = crear(0);
     await servicio.expirar(c.transaccion, 'v1');
     expect((c.tx.$queryRaw.mock.calls[0][0] as string[]).join('?')).toContain(
-      'FOR UPDATE',
+      'FOR NO KEY UPDATE',
     );
     expect(c.tx.$queryRaw).toHaveBeenCalledBefore(c.tx.$executeRaw);
   });
