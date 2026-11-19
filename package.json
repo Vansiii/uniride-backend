@@ -26,6 +26,7 @@
     "prisma:generar": "prisma generate",
     "prisma:migrar": "prisma migrate dev",
     "prisma:semilla": "node prisma/semilla.ts",
+    "prisma:datos-demo": "node prisma/datos-demo.ts",
     "format:verificar": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\""
   },
   "dependencies": {

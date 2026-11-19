@@ -68,6 +68,27 @@ describe('FirmanteKms (A-12)', () => {
     expect(Transaction.from(crudo).from).toBe(direccion);
   });
 
+  it('conserva chainId y campos al firmar un Transaction, como hace sendTransaction', async () => {
+    const { kms, direccion } = kmsSimulado();
+    const tx = Transaction.from({
+      to: Wallet.createRandom().address,
+      chainId: 80002,
+      nonce: 3,
+      gasLimit: 100000,
+      maxFeePerGas: 1_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+      type: 2,
+      data: '0x1234',
+    });
+    const firmada = Transaction.from(
+      await new FirmanteKms('k', kms).signTransaction(tx),
+    );
+    expect(firmada.chainId).toBe(80002n);
+    expect(firmada.nonce).toBe(3);
+    expect(firmada.data).toBe('0x1234');
+    expect(firmada.from).toBe(direccion);
+  });
+
   it('rechaza una transacción de otra cuenta y no firma mensajes', async () => {
     const firmante = new FirmanteKms('k', kmsSimulado().kms);
     await expect(

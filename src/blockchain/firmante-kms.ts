@@ -82,11 +82,15 @@ export class FirmanteKms extends AbstractSigner {
     if (from && from !== direccion)
       throw new Error('La transacción es de otra cuenta que la llave KMS');
     const to = tx.to ? await resolveAddress(tx.to) : null;
-    const transaccion = Transaction.from({
-      ...tx,
-      to,
-      from: undefined,
-    } as TransactionLike<string>);
+    // `sendTransaction` entrega un `Transaction`: sus campos son getters y `{...tx}` quedaría vacío (chainId 0).
+    const transaccion =
+      tx instanceof Transaction
+        ? tx.clone()
+        : Transaction.from({
+            ...tx,
+            to,
+            from: undefined,
+          } as TransactionLike<string>);
     transaccion.signature = await this.firmar(
       transaccion.unsignedHash,
       direccion,
