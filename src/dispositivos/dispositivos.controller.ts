@@ -71,7 +71,7 @@ export class DispositivosController {
   @ApiServiceUnavailableResponse({
     type: ErrorDto,
     description:
-      '`SERVICIO_NO_DISPONIBLE`: Google Play Integrity no respondió; no se guardó nada.',
+      '`SERVICIO_NO_DISPONIBLE`: la atestación del dispositivo no está disponible; no se guardó nada.',
   })
   vincular(
     @UsuarioActual() usuario: UsuarioToken,
@@ -141,7 +141,7 @@ export class DispositivosController {
   @ApiServiceUnavailableResponse({
     type: ErrorDto,
     description:
-      '`SERVICIO_NO_DISPONIBLE`: Play Integrity o Rekognition no respondieron; nada cambia (CA-11).',
+      '`SERVICIO_NO_DISPONIBLE`: La atestación o Rekognition no respondieron; nada cambia (CA-11).',
   })
   revincular(
     @UsuarioActual() usuario: UsuarioToken,

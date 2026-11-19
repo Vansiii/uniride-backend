@@ -684,7 +684,7 @@ export class PresenciaService {
 
   /**
    * Encuentro de HU-22, para abordaje y bajada (HU-23 RN-7). Tx 1 consume el código y se confirma siempre (RN-1: cada
-   * escaneo lo gasta). Luego se valida, de lo barato a lo caro (Play Integrity al final). Devuelve la reserva sin más si
+   * escaneo lo gasta). Luego se valida, de lo barato a lo caro (la atestación al final). Devuelve la reserva sin más si
    * ese encuentro ya se hizo (repetirlo no crea otra prueba); si no, lo validado, que la Tx final de cada tipo guarda.
    */
   private async encuentro(

@@ -2,10 +2,8 @@ import { Module } from '@nestjs/common';
 import { BilleteraModule } from '../billetera/billetera.module.js';
 import { FirmaDispositivoModule } from '../comun/firma-dispositivo.guard.js';
 import { FirmaTrayectoGuard } from '../comun/firma-trayecto.guard.js';
-import {
-  PlayIntegrityService,
-  crearPlayIntegrity,
-} from '../comun/play-integrity.service.js';
+import { crearPlayIntegrity } from '../comun/atestacion-keystore.service.js';
+import { PlayIntegrityService } from '../comun/play-integrity.service.js';
 import { EstadoViajeModule } from '../viajes/estado-viaje.service.js';
 import { ViajesModule } from '../viajes/viajes.module.js';
 import { PresenciaController } from './presencia.controller.js';

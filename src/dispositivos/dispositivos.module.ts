@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
-import {
-  crearPlayIntegrity,
-  PlayIntegrityService,
-} from '../comun/play-integrity.service.js';
+import { crearPlayIntegrity } from '../comun/atestacion-keystore.service.js';
+import { PlayIntegrityService } from '../comun/play-integrity.service.js';
 import { IdentidadModule } from '../identidad/identidad.module.js';
 import { DispositivosController } from './dispositivos.controller.js';
 import { DispositivosService } from './dispositivos.service.js';

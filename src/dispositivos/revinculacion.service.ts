@@ -111,7 +111,7 @@ export class RevinculacionService {
   /**
    * CA-2, CA-4, CA-5, CA-6, CA-8, CA-10 y CA-11:
    * 1. Consume desafío (un solo uso).
-   * 2. Normaliza llave pública y valida Play Integrity.
+   * 2. Normaliza llave pública y valida la atestación.
    * 3. Si requiere identidad: valida prueba de vida y compara con carnet. Fallos suman y bloquean 24 h al 3.º (CA-7).
    * 4. Transacción atómica: desactiva anterior(es), inserta nuevo, audita y encola correo de aviso.
    */
@@ -169,7 +169,7 @@ export class RevinculacionService {
       );
     }
 
-    // Después de la llave y de Play Integrity: sin un teléfono íntegro no se gasta ni se suma un intento de identidad.
+    // Después de la llave y de la atestación: sin un teléfono íntegro no se gasta ni se suma un intento de identidad.
     const requiereIdentidad =
       await this.identidad.tieneIdentidadAprobada(usuarioId);
     if (requiereIdentidad) {

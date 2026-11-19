@@ -5,7 +5,7 @@ import { recortar } from '../../comun/validaciones.js';
 export class DesafioAtestacionDto {
   @ApiProperty({
     description:
-      'Valor de un solo uso: la app lo usa como nonce al pedir el token de Play Integrity (base64 web-safe).',
+      'Valor de un solo uso: la app lo usa como nonce al pedir el token de atestación (base64 web-safe).',
   })
   desafio!: string;
 
@@ -25,7 +25,7 @@ export class VincularDispositivoDto {
 
   @ApiProperty({
     description:
-      'Token de Play Integrity pedido con el desafío como nonce. Con `MODO_EMULADOR_DEV` (solo desarrollo) rige la convención `simulado:integro`.',
+      'Token de atestación (cadena de certificados de Key Attestation, en base64 y separados por comas) generada con el desafío. Con `MODO_EMULADOR_DEV` (solo desarrollo) rige la convención `simulado:integro`.',
   })
   @IsString()
   @IsNotEmpty()
@@ -99,7 +99,8 @@ export class RevincularDispositivoDto {
   desafio!: string;
 
   @ApiProperty({
-    description: 'Token de Play Integrity pedido con el desafío como nonce.',
+    description:
+      'Token de atestación (cadena de certificados de Key Attestation, en base64 y separados por comas) generada con el desafío.',
   })
   @IsString()
   @IsNotEmpty()
