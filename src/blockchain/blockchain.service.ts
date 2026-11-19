@@ -11,7 +11,9 @@ import {
   parseUnits,
   Signature,
   Wallet,
+  type Signer,
 } from 'ethers';
+import { FirmanteKms } from './firmante-kms.js';
 
 /** Hardhat local y Polygon Amoy. Cualquier otra red, en especial una mainnet, no arranca (AGENTS.md §11). */
 const CADENAS_PERMITIDAS = [31337, 80002];
@@ -153,8 +155,8 @@ export function unidadesAUrc(unidades: bigint): string {
 export class CadenaReal implements Cadena {
   private readonly proveedor: JsonRpcProvider;
   private readonly token: Contract | null;
-  private readonly relayer: Wallet | null;
-  private readonly verificador: Wallet | null;
+  private readonly relayer: Signer | null;
+  private readonly verificador: Signer | null;
   private readonly escrow: Contract | null;
 
   constructor(
@@ -162,9 +164,9 @@ export class CadenaReal implements Cadena {
     private readonly direccionToken: string,
     private readonly cadenaId: number,
     tiempoMaximoMs = TIEMPO_MAXIMO_MS,
-    llaveRelayer?: string,
+    llaveRelayer?: string | Signer,
     private readonly direccionEscrow = '',
-    llaveVerificador?: string,
+    llaveVerificador?: string | Signer,
   ) {
     const peticion = new FetchRequest(url);
     peticion.timeout = tiempoMaximoMs;
@@ -178,12 +180,14 @@ export class CadenaReal implements Cadena {
     this.token = direccionToken
       ? new Contract(direccionToken, ABI_UNICOIN, this.proveedor)
       : null;
-    this.relayer = llaveRelayer
-      ? new Wallet(llaveRelayer, this.proveedor)
-      : null;
-    this.verificador = llaveVerificador
-      ? new Wallet(llaveVerificador, this.proveedor)
-      : null;
+    const firmante = (llave?: string | Signer): Signer | null =>
+      !llave
+        ? null
+        : typeof llave === 'string'
+          ? new Wallet(llave, this.proveedor)
+          : llave.connect(this.proveedor);
+    this.relayer = firmante(llaveRelayer);
+    this.verificador = firmante(llaveVerificador);
     this.escrow = direccionEscrow
       ? new Contract(direccionEscrow, ABI_ESCROW, this.proveedor)
       : null;
@@ -319,7 +323,7 @@ export class CadenaReal implements Cadena {
     if (!this.verificador) return false;
     return (await this.escrow.hasRole(
       id('ROL_VERIFICADOR'),
-      this.verificador.address,
+      await this.verificador.getAddress(),
     )) as boolean;
   }
 
@@ -578,10 +582,34 @@ export function crearCadena(env: NodeJS.ProcessEnv = process.env): Cadena {
   if (escrow && !isAddress(escrow))
     throw new Error('DIRECCION_ESCROW no es una dirección válida');
   // A-12: en producción las llaves del relayer y del verificador solo viven en KMS. Sin esos firmantes (SP129) no se arranca.
-  if (produccion)
-    throw new Error(
-      'Producción exige el firmante KMS del relayer y el del verificador (SP129); RELAYER_LLAVE_PRIVADA y VERIFICADOR_LLAVE_PRIVADA no se aceptan',
+  if (produccion) {
+    const {
+      KMS_LLAVE_RELAYER_ID: kmsRelayer,
+      KMS_LLAVE_VERIFICADOR_ID: kmsVerificador,
+    } = env;
+    if (!kmsRelayer || !kmsVerificador)
+      throw new Error(
+        'Producción exige el firmante KMS del relayer y el del verificador (SP129): KMS_LLAVE_RELAYER_ID y KMS_LLAVE_VERIFICADOR_ID',
+      );
+    if (env.RELAYER_LLAVE_PRIVADA || env.VERIFICADOR_LLAVE_PRIVADA)
+      throw new Error(
+        'Producción exige el firmante KMS del relayer y el del verificador (SP129); RELAYER_LLAVE_PRIVADA y VERIFICADOR_LLAVE_PRIVADA no se aceptan',
+      );
+    // A-09: dos llaves KMS distintas; el arranque no puede comprobarlo sin llamar a KMS, pero un mismo id sí.
+    if (kmsRelayer === kmsVerificador)
+      throw new Error(
+        'KMS_LLAVE_VERIFICADOR_ID debe ser otra llave que KMS_LLAVE_RELAYER_ID (A-09)',
+      );
+    return new CadenaReal(
+      env.CADENA_RPC_URL,
+      token,
+      cadenaId,
+      undefined,
+      new FirmanteKms(kmsRelayer),
+      escrow,
+      new FirmanteKms(kmsVerificador),
     );
+  }
   // A-09: el relayer bloquea y el verificador libera; con la misma llave, una sola llave caliente haría las dos cosas.
   if (
     env.RELAYER_LLAVE_PRIVADA &&
