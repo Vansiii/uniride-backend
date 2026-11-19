@@ -150,4 +150,30 @@ describe('MotorFacialRekognition', () => {
       FaceIds: ['face-1'],
     });
   });
+
+  it('configura credenciales y region dedicadas si estan presentes en env', async () => {
+    vi.stubEnv('AWS_REKOGNITION_REGION', 'us-east-1');
+    vi.stubEnv('AWS_REKOGNITION_ACCESS_KEY_ID', 'test-key');
+    vi.stubEnv('AWS_REKOGNITION_SECRET_ACCESS_KEY', 'test-secret');
+
+    const motor = new MotorFacialRekognition(COLECCION);
+    const cliente = (motor as unknown as { cliente: RekognitionClient })
+      .cliente;
+
+    await expect(cliente.config.region()).resolves.toBe('us-east-1');
+    const creds = await cliente.config.credentials();
+    expect(creds.accessKeyId).toBe('test-key');
+    expect(creds.secretAccessKey).toBe('test-secret');
+  });
+
+  it('usa fallback de region us-east-1 cuando no hay region en env', async () => {
+    vi.stubEnv('AWS_REKOGNITION_REGION', '');
+    vi.stubEnv('AWS_REGION', '');
+
+    const motor = new MotorFacialRekognition(COLECCION);
+    const cliente = (motor as unknown as { cliente: RekognitionClient })
+      .cliente;
+
+    await expect(cliente.config.region()).resolves.toBe('us-east-1');
+  });
 });
