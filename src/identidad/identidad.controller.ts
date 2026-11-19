@@ -26,6 +26,7 @@ import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import type { FotoSubida } from '../vehiculos/foto.js';
 import {
+  CredencialesLivenessDto,
   EstadoIdentidadDto,
   FormularioVerificarIdentidadDto,
   SesionLivenessDto,
@@ -63,6 +64,22 @@ export class IdentidadController {
   })
   crearSesionLiveness(@UsuarioActual() usuario: UsuarioToken) {
     return this.servicio.crearSesionLiveness(usuario.id);
+  }
+
+  @Post('liveness-credenciales')
+  @HttpCode(200)
+  @ApiOkResponse({
+    type: CredencialesLivenessDto,
+    description:
+      'Credenciales temporales (15 min), solo para abrir el video de la prueba de vida. El teléfono las pasa al componente nativo.',
+  })
+  @ApiServiceUnavailableResponse({
+    type: ErrorDto,
+    description:
+      '`SERVICIO_NO_DISPONIBLE`: sin credenciales dedicadas de Rekognition o falla de STS.',
+  })
+  credencialesLiveness() {
+    return this.servicio.credencialesLiveness();
   }
 
   @Post('verificar')

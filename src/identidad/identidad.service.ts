@@ -9,6 +9,10 @@ import {
   SIMILITUD_MINIMA,
   type MotorFacial,
 } from '../comun/motor-facial.js';
+import {
+  pedirCredencialesLiveness,
+  type CredencialesLiveness,
+} from '../comun/credenciales-liveness.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { RekognitionService } from '../comun/rekognition.service.js';
 import { MAXIMO_FOTO_BYTES, tipoDeImagen } from '../vehiculos/foto.js';
@@ -123,6 +127,25 @@ export class IdentidadService implements OnModuleInit {
         { bloqueadoHasta: fila?.bloqueadoHasta },
       );
     return { sesionId: await this.motor((m) => m.crearSesionLiveness()) };
+  }
+
+  /**
+   * Credenciales temporales, acotadas a abrir el video de la prueba de vida, para el componente nativo de la app.
+   * ponytail: sin límite de peticiones propio; el de la API aplica y la sesión de Rekognition vence sola.
+   */
+  async credencialesLiveness(): Promise<CredencialesLiveness> {
+    try {
+      const c = await pedirCredencialesLiveness();
+      if (c) return c;
+      this.registro.error(
+        'Sin AWS_REKOGNITION_ACCESS_KEY_ID/SECRET: no hay credenciales para la prueba de vida',
+      );
+    } catch (error) {
+      this.registro.error(
+        `Falla de STS para la prueba de vida (${(error as { name?: string } | null)?.name ?? 'Error'})`,
+      );
+    }
+    throw noDisponible();
   }
 
   /** HU-10: comprueba si la cuenta tiene identidad aprobada. */
