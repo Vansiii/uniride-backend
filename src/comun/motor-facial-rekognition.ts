@@ -15,11 +15,27 @@ import {
 
 /** AWS Rekognition (plan HU-08 §3). La colección privada de UniRide viene de `REKOGNITION_COLECCION_ROSTROS`. */
 export class MotorFacialRekognition implements MotorFacial {
-  private readonly cliente = new RekognitionClient({
-    region: process.env.AWS_REGION,
-  });
+  private readonly cliente: RekognitionClient;
 
-  constructor(private readonly coleccion: string) {}
+  constructor(private readonly coleccion: string) {
+    const region =
+      process.env.AWS_REKOGNITION_REGION ||
+      process.env.AWS_REGION ||
+      'us-east-1';
+    const credentials =
+      process.env.AWS_REKOGNITION_ACCESS_KEY_ID &&
+      process.env.AWS_REKOGNITION_SECRET_ACCESS_KEY
+        ? {
+            accessKeyId: process.env.AWS_REKOGNITION_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_REKOGNITION_SECRET_ACCESS_KEY,
+          }
+        : undefined;
+
+    this.cliente = new RekognitionClient({
+      region,
+      ...(credentials ? { credentials } : {}),
+    });
+  }
 
   async crearSesionLiveness(): Promise<string> {
     const r = await this.cliente.send(new CreateFaceLivenessSessionCommand({}));

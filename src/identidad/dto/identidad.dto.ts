@@ -71,6 +71,16 @@ export class SesionLivenessDto {
   sesionId!: string;
 }
 
+export class CredencialesLivenessDto {
+  @ApiProperty() accessKeyId!: string;
+  @ApiProperty() secretAccessKey!: string;
+  @ApiProperty() sessionToken!: string;
+  @ApiProperty({ format: 'date-time', description: 'Vencen a los 15 minutos' })
+  expiracion!: string;
+  @ApiProperty({ example: 'us-east-1', description: 'Región de la sesión' })
+  region!: string;
+}
+
 export class VerificacionDto {
   @ApiProperty({ enum: ESTADOS_IDENTIDAD, example: 'verificada' })
   estado!: EstadoIdentidad;
