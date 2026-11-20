@@ -5,6 +5,7 @@ import type { AuditoriaService } from '../auditoria/auditoria.service.js';
 import type { BlockchainService } from '../blockchain/blockchain.service.js';
 import type { PrismaService } from '../comun/prisma.service.js';
 import type { CorreosService } from '../notificaciones/correos.service.js';
+import type { PushService } from '../notificaciones/push.service.js';
 import type { EstadoViajeService } from '../viajes/estado-viaje.service.js';
 import { CancelacionesService } from './cancelaciones.service.js';
 
@@ -34,6 +35,7 @@ describe('CancelacionesService', () => {
                 pasajeroId: 'u1',
                 estado: 'confirmada',
                 monto: new Prisma.Decimal('10.00'),
+                pasajero: { nombreCompleto: 'Ana Pérez' },
                 viaje: {
                   id: 'v1',
                   conductorId: 'c1',
@@ -120,16 +122,19 @@ describe('CancelacionesService', () => {
       },
     };
 
+    const push = { encolar: vi.fn() };
     const servicio = new CancelacionesService(
       prisma as unknown as PrismaService,
       auditoria as unknown as AuditoriaService,
       estadoViaje as unknown as EstadoViajeService,
       correos as unknown as CorreosService,
       blockchain as unknown as BlockchainService,
+      push as unknown as PushService,
     );
 
     return {
       servicio,
+      push,
       prisma,
       tx,
       auditoria,
@@ -235,6 +240,7 @@ describe('CancelacionesService', () => {
           pasajeroId: 'u1',
           estado: 'confirmada',
           monto: new Prisma.Decimal('10.00'),
+          pasajero: { nombreCompleto: 'Ana Pérez' },
           viaje: {
             id: 'v1',
             conductorId: 'c1',
@@ -279,6 +285,13 @@ describe('CancelacionesService', () => {
       expect(res.estado).toBe('cancelada');
       expect(res.reembolso.estado).toBe('pendiente');
       expect(res.reembolso.montoPasajero).toBe('10.00');
+      // PB-09: avisa al conductor.
+      expect(c.push.encolar).toHaveBeenCalledWith(
+        c.tx,
+        'c1',
+        'reserva_cancelada',
+        expect.objectContaining({ pasajero: 'Ana', ruta: '/viajes/v1' }),
+      );
       expect(res.reembolso.montoConductor).toBe('0.00');
 
       // Verifica movimiento del pasajero al 100 %
@@ -323,6 +336,7 @@ describe('CancelacionesService', () => {
           pasajeroId: 'u1',
           estado: 'confirmada',
           monto: new Prisma.Decimal('12.00'),
+          pasajero: { nombreCompleto: 'Ana Pérez' },
           viaje: {
             id: 'v1',
             conductorId: 'c1',

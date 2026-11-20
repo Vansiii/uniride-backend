@@ -26,6 +26,8 @@ model Usuario {
   ultimaOrganizacionId  String?   @map("ultima_organizacion_id") @db.Uuid
   consentimientoDatosEn DateTime? @map("consentimiento_datos_en") @db.Timestamptz(3)
   suspendidaEn          DateTime? @map("suspendida_en") @db.Timestamptz(3)
+  /// PB-09: token FCM del teléfono con sesión; nunca sale en respuestas.
+  tokenPush             String?   @unique @map("token_push")
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   tokensRefresco TokenRefresco[]
@@ -39,6 +41,7 @@ model Usuario {
   reservas       Reserva[]
   llavesTrayecto LlaveTrayecto[]
   puntosGps      PuntoGps[]
+  notificacionesPush NotificacionPush[]
 
   @@map("usuarios")
 }
@@ -382,6 +385,24 @@ model CorreoSaliente {
   @@index([estado, proximoIntentoEn])
   @@index([referenciaTipo, referenciaId])
   @@map("correos_salientes")
+}
+
+/// PB-09: cola de notificaciones push. El token se lee del usuario al enviar.
+model NotificacionPush {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId        String   @map("usuario_id") @db.Uuid
+  plantilla        String
+  datos            Json
+  estado           String   @default("pendiente")
+  intentos         Int      @default(0)
+  proximoIntentoEn DateTime @default(now()) @map("proximo_intento_en") @db.Timestamptz(3)
+  ultimoError      String?  @map("ultimo_error")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([estado, proximoIntentoEn], map: "notificaciones_push_estado_proximo_idx")
+  @@map("notificaciones_push")
 }
 
 // --- HU-19: reserva con escrow ---

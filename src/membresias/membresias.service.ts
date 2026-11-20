@@ -5,6 +5,7 @@ import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { t } from '../i18n/t.js';
 import { CorreosService } from '../notificaciones/correos.service.js';
+import { PushService } from '../notificaciones/push.service.js';
 import type {
   DecisionDto,
   DecisionRespuestaDto,
@@ -20,6 +21,7 @@ export class MembresiasService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly correos: CorreosService,
+    private readonly push: PushService,
   ) {}
 
   /** CA-1: solicitudes de la organización activa, de la más antigua a la más reciente. Otro `id` responde como inexistente (A-13). */
@@ -128,6 +130,12 @@ export class MembresiasService {
           referenciaTipo: 'membresia',
           referenciaId: id,
         });
+        await this.push.encolar(
+          tx,
+          m.usuarioId,
+          estado === 'aprobada' ? 'membresia_aprobada' : 'membresia_rechazada',
+          { organizacion: m.organizacion.nombre },
+        );
         return { id, estado };
       },
     );

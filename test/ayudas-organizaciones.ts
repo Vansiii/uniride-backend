@@ -129,6 +129,10 @@ export async function prepararEntorno(
       `DELETE FROM movimientos_billetera WHERE billetera_id IN (SELECT id FROM billeteras WHERE usuario_id IN (${usuarios}))`,
     );
     await bd.query(`DELETE FROM billeteras WHERE usuario_id IN (${usuarios})`);
+    // PB-09: los avisos apuntan al usuario.
+    await bd.query(
+      `DELETE FROM notificaciones_push WHERE usuario_id IN (${usuarios})`,
+    );
     await bd.query(`DELETE FROM usuarios WHERE correo LIKE '${CORREOS}'`);
   };
   await limpiar();
