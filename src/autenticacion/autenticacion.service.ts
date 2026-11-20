@@ -160,6 +160,11 @@ export class AutenticacionService {
     } else {
       await this.revocarTodas(usuarioId);
     }
+    // PB-09: sin sesión, el teléfono deja de recibir avisos de esta cuenta.
+    await this.prisma.usuario.update({
+      where: { id: usuarioId },
+      data: { tokenPush: null },
+    });
     await this.auditoria.registrar({
       accion: 'sesion.cierre',
       entidad: 'usuario',

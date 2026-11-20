@@ -5,6 +5,7 @@ import type { PrismaService } from '../comun/prisma.service.js';
 import { id } from 'ethers';
 import { Prisma } from '../generated/prisma/client.js';
 import type { EstadoViajeService } from '../viajes/estado-viaje.service.js';
+import type { PushService } from '../notificaciones/push.service.js';
 import type { BlockchainService } from './blockchain.service.js';
 import { TrabajosOnchainService } from './trabajos-onchain.service.js';
 
@@ -50,6 +51,7 @@ function crear(intentos = 0) {
     movimientos as unknown as MovimientosService,
     auditoria as unknown as AuditoriaService,
     { recalcular: vi.fn() } as unknown as EstadoViajeService,
+    { encolar: vi.fn() } as unknown as PushService,
   );
   return { servicio, prisma, tx, cadena, movimientos, auditoria };
 }
@@ -220,7 +222,10 @@ describe('TrabajosOnchainService · bloquear_reserva (HU-19)', () => {
           estado: o.estadoReserva ?? 'pendiente',
           viajeId: 'v1',
           organizacionId: 'o1',
+          pasajero: { nombreCompleto: 'Ana Pérez' },
           viaje: {
+            conductorId: 'c1',
+            destinoNombre: 'UAGRM',
             conductor: {
               billetera: o.billetera === null ? null : { direccion: CONDUCTOR },
             },
@@ -242,6 +247,7 @@ describe('TrabajosOnchainService · bloquear_reserva (HU-19)', () => {
       movimientos as unknown as MovimientosService,
       auditoria as unknown as AuditoriaService,
       estadoViaje as unknown as EstadoViajeService,
+      { encolar: vi.fn() } as unknown as PushService,
     );
     return {
       servicio,
@@ -264,6 +270,20 @@ describe('TrabajosOnchainService · bloquear_reserva (HU-19)', () => {
   it('éxito: firma con la llave custodiada, confirma movimiento y reserva, avanza el viaje y termina el trabajo', async () => {
     const c = crearReserva();
     await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    // PB-09: avisa al pasajero y al conductor en la misma Tx.
+    const encolar = c.servicio['push'].encolar as ReturnType<typeof vi.fn>;
+    expect(encolar).toHaveBeenCalledWith(
+      c.tx,
+      expect.any(String),
+      'reserva_confirmada',
+      expect.objectContaining({ destino: 'UAGRM', ruta: '/reserva/r1' }),
+    );
+    expect(encolar).toHaveBeenCalledWith(
+      c.tx,
+      'c1',
+      'nuevo_pasajero',
+      expect.objectContaining({ pasajero: 'Ana', ruta: '/viajes/v1' }),
+    );
 
     expect(c.cadena.bloquearReserva).toHaveBeenCalledWith({
       idReserva: id('r1'),
@@ -482,6 +502,7 @@ describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
           estado: o.estadoReserva ?? 'verificada',
           viajeId: 'v1',
           organizacionId: 'o1',
+          viaje: { destinoNombre: 'UAGRM' },
         }),
       )
       .mockImplementation((cb: (t: typeof tx) => unknown) => cb(tx));
@@ -504,6 +525,7 @@ describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
       movimientos as unknown as MovimientosService,
       auditoria as unknown as AuditoriaService,
       estadoViaje as unknown as EstadoViajeService,
+      { encolar: vi.fn() } as unknown as PushService,
     );
     return {
       servicio,
@@ -524,6 +546,13 @@ describe('TrabajosOnchainService · liberar_reserva (HU-24)', () => {
   it('CA-1: libera con el hash de la prueba y en una Tx: confirmado, pagada, viaje recalculado y auditoría', async () => {
     const c = crearLiberacion();
     await expect(c.servicio.procesarPendientes()).resolves.toBe(1);
+    // PB-09: avisa al conductor del pago.
+    expect(c.servicio['push'].encolar).toHaveBeenCalledWith(
+      c.tx,
+      'c1',
+      'pago_recibido',
+      expect.objectContaining({ destino: 'UAGRM', ruta: '/movimientos' }),
+    );
     expect(c.cadena.estadoReservaEscrow).toHaveBeenCalledWith(id('r1'));
     expect(c.cadena.liberarReserva).toHaveBeenCalledWith(id('r1'), HASH_PRUEBA);
     expect(c.movimientos.actualizarEstado).toHaveBeenCalledWith(
@@ -704,6 +733,7 @@ describe('operacion reembolsar_reserva (HU-20, A-09, CA-17)', () => {
       movimientos as unknown as MovimientosService,
       auditoria as unknown as AuditoriaService,
       estadoViaje as unknown as EstadoViajeService,
+      { encolar: vi.fn() } as unknown as PushService,
     );
     return {
       servicio,

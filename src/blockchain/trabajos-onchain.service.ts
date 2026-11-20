@@ -11,6 +11,7 @@ import { descifrarLlave } from '../billetera/custodia.js';
 import { MovimientosService } from '../billetera/movimientos.service.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import type { Prisma } from '../generated/prisma/client.js';
+import { PushService } from '../notificaciones/push.service.js';
 import { EstadoViajeService } from '../viajes/estado-viaje.service.js';
 import {
   BlockchainService,
@@ -19,6 +20,7 @@ import {
 } from './blockchain.service.js';
 
 export const PREFIJO_CLAVE_RECARGA = 'recarga:';
+const primerNombre = (nombre: string) => nombre.trim().split(' ')[0];
 const CADA_MS = 5_000;
 const LOTE = 10;
 const ALERTA_EN_INTENTO = 5;
@@ -61,6 +63,7 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
     private readonly movimientos: MovimientosService,
     private readonly auditoria: AuditoriaService,
     private readonly estadoViaje: EstadoViajeService,
+    private readonly push: PushService,
   ) {}
 
   onModuleInit(): void {
@@ -207,8 +210,11 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
             estado: true,
             viajeId: true,
             organizacionId: true,
+            pasajero: { select: { nombreCompleto: true } },
             viaje: {
               select: {
+                conductorId: true,
+                destinoNombre: true,
                 conductor: {
                   select: { billetera: { select: { direccion: true } } },
                 },
@@ -257,11 +263,30 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
           hashTx,
           tx,
         );
-        await tx.reserva.updateMany({
+        const { count } = await tx.reserva.updateMany({
           where: { id: reservaId, estado: 'pendiente' },
           data: { estado: 'confirmada' },
         });
         await this.estadoViaje.recalcular(tx, reserva.viajeId);
+        // PB-09: solo quien la confirmó avisa, una vez.
+        if (count > 0) {
+          const destino = reserva.viaje.destinoNombre;
+          await this.push.encolar(tx, usuarioId, 'reserva_confirmada', {
+            destino,
+            monto: movimiento.monto.toFixed(2),
+            ruta: `/reserva/${reservaId}`,
+          });
+          await this.push.encolar(
+            tx,
+            reserva.viaje.conductorId,
+            'nuevo_pasajero',
+            {
+              destino,
+              pasajero: primerNombre(reserva.pasajero.nombreCompleto),
+              ruta: `/viajes/${reserva.viajeId}`,
+            },
+          );
+        }
         await tx.trabajoOnchain.update({
           where: { id: trabajo.id },
           data: { estado: 'terminado', ultimoError: null },
@@ -358,7 +383,12 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
       const reserva = await this.prisma.comoSuperAdmin((tx) =>
         tx.reserva.findUniqueOrThrow({
           where: { id: reservaId },
-          select: { estado: true, viajeId: true, organizacionId: true },
+          select: {
+            estado: true,
+            viajeId: true,
+            organizacionId: true,
+            viaje: { select: { destinoNombre: true } },
+          },
         }),
       );
       // La alerta de RN-5 tras 5 intentos la ve la organización del viaje.
@@ -401,11 +431,18 @@ export class TrabajosOnchainService implements OnModuleInit, OnModuleDestroy {
           hashTx,
           tx,
         );
-        await tx.reserva.updateMany({
+        const { count } = await tx.reserva.updateMany({
           where: { id: reservaId, estado: 'verificada' },
           data: { estado: 'pagada' },
         });
         await this.estadoViaje.recalcular(tx, reserva.viajeId);
+        // PB-09: la billetera del movimiento es la del conductor.
+        if (count > 0)
+          await this.push.encolar(tx, usuarioId, 'pago_recibido', {
+            monto,
+            destino: reserva.viaje.destinoNombre,
+            ruta: '/movimientos',
+          });
         await tx.trabajoOnchain.update({
           where: { id: trabajo.id },
           data: { estado: 'terminado', ultimoError: null },

@@ -4,6 +4,7 @@ import { EstadoViaje } from '../generated/prisma/client.js';
 import type { AuditoriaService } from '../auditoria/auditoria.service.js';
 import type { PrismaService } from '../comun/prisma.service.js';
 import type { CorreosService } from '../notificaciones/correos.service.js';
+import type { PushService } from '../notificaciones/push.service.js';
 import type { EstadoViajeService } from '../viajes/estado-viaje.service.js';
 import { VencimientosService } from './vencimientos.service.js';
 
@@ -125,15 +126,18 @@ describe('VencimientosService (HU-20 SP181)', () => {
         ),
     };
 
+    const push = { encolar: vi.fn() };
     const servicio = new VencimientosService(
       prisma as unknown as PrismaService,
       auditoria as unknown as AuditoriaService,
       estadoViaje as unknown as EstadoViajeService,
       correos as unknown as CorreosService,
+      push as unknown as PushService,
     );
 
     return {
       servicio,
+      push,
       tx,
       prisma,
       auditoria,
@@ -150,6 +154,7 @@ describe('VencimientosService (HU-20 SP181)', () => {
     it('expira reserva confirmada pasados 15 min de la salida y genera reembolso 100 %', async () => {
       const {
         servicio,
+        push,
         movimientosCreados,
         trabajosCreados,
         eventosAuditoria,
@@ -161,6 +166,7 @@ describe('VencimientosService (HU-20 SP181)', () => {
             pasajeroId: 'pasajero-1',
             organizacionId: 'org-1',
             viajeId: 'viaje-1',
+            viaje: { destinoNombre: 'UAGRM' },
           },
         ],
       });
@@ -168,6 +174,12 @@ describe('VencimientosService (HU-20 SP181)', () => {
       const res = await servicio.procesarVencimientos(AHORA);
 
       expect(res.reservasExpiradas).toBe(1);
+      expect(push.encolar).toHaveBeenCalledWith(
+        expect.anything(),
+        'pasajero-1',
+        'reserva_expirada',
+        expect.objectContaining({ monto: '12.00', ruta: '/reserva/res-1' }),
+      );
       expect(movimientosCreados).toHaveLength(1);
       expect(movimientosCreados[0]).toMatchObject({
         billeteraId: 'billetera-1',
@@ -206,6 +218,7 @@ describe('VencimientosService (HU-20 SP181)', () => {
             pasajeroId: 'pasajero-1',
             organizacionId: 'org-1',
             viajeId: 'viaje-1',
+            viaje: { destinoNombre: 'UAGRM' },
           },
         ],
         updateManySinAbordajeCount: 0,
