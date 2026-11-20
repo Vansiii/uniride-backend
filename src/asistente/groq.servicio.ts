@@ -5,8 +5,7 @@ import Groq from 'groq-sdk';
 export class GroqServicio {
   private readonly logger = new Logger(GroqServicio.name);
   private cliente: Groq | null = null;
-  private readonly modelo =
-    process.env.GROQ_MODELO || 'llama-3.3-70b-versatile';
+  private readonly modelo = process.env.GROQ_MODELO || 'qwen/qwen3.8-27b';
   private readonly tiempoLimiteMs = 2500;
 
   constructor() {
