@@ -56,6 +56,7 @@ describe('HU-08 · Verificación de identidad (e2e)', () => {
         estado: 'no_verificada',
         verificadoEn: null,
         bloqueadoHasta: null,
+        requiereCarnet: false,
       });
     });
   });
@@ -638,10 +639,11 @@ describe('HU-08 · Verificación de identidad (e2e)', () => {
           expect(contenido, `${donde} contiene ${secreto}`).not.toContain(
             secreto,
           );
-      // Las respuestas de éxito y estado solo traen estado y fechas.
+      // Las respuestas de éxito y estado solo traen estado, fechas y si falta el carnet.
       expect(Object.keys((await a.estado(dueno)).body).sort()).toEqual([
         'bloqueadoHasta',
         'estado',
+        'requiereCarnet',
         'verificadoEn',
       ]);
     });
