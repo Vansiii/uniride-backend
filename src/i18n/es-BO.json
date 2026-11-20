@@ -149,5 +149,6 @@
   "push.membresia_rechazada.titulo": "Solicitud no aprobada",
   "push.membresia_rechazada.cuerpo": "{organizacion} no aprobó tu solicitud de ingreso.",
   "push.prueba.titulo": "Notificaciones activas",
-  "push.prueba.cuerpo": "Hola {nombre}, así te avisaremos de tus reservas, viajes y pagos."
+  "push.prueba.cuerpo": "Hola {nombre}, así te avisaremos de tus reservas, viajes y pagos.",
+  "asistente.limite_alcanzado": "Hiciste muchas consultas seguidas. Espera un minuto e intenta de nuevo."
 }
