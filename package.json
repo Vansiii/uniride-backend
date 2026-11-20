@@ -47,6 +47,7 @@
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "ethers": "^6.17.0",
+    "groq-sdk": "^1.6.0",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
