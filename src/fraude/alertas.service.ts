@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { PrismaService, type Transaccion } from '../comun/prisma.service.js';
+import { INTENTOS_MAXIMOS } from './analisis-riesgo.js';
 import type {
   AlertaDto,
+  AnalisisIaDto,
   AlertasRespuestaDto,
   BloqueoVigenteDto,
   FiltroAlertasDto,
@@ -23,6 +25,10 @@ interface FilaAuditoria {
     tipo?: string;
     hasta?: string;
   };
+  /** PB-10: primer análisis válido y cantidad de intentos fallidos. */
+  analisis?:
+    (Omit<AnalisisIaDto, 'analizadoEn'> & { analizado_en: string }) | null;
+  fallos?: number;
 }
 
 /**
@@ -49,11 +55,17 @@ export class AlertasService {
         const antes = filtro.antes ? new Date(filtro.antes) : null;
         const patron = filtro.patron ?? null;
         const filas = await tx.$queryRaw<FilaAuditoria[]>`
-        SELECT id, creado_en, detalle FROM registros_auditoria
-        WHERE organizacion_id = ${organizacionId}::uuid AND accion = 'fraude.alerta'
-          AND (${patron}::text IS NULL OR detalle->>'patron' = ${patron}::text)
-          AND (${antes}::timestamptz IS NULL OR creado_en < ${antes}::timestamptz)
-        ORDER BY creado_en DESC, id DESC
+        SELECT a.id, a.creado_en, a.detalle,
+          (SELECT x.detalle || jsonb_build_object('analizado_en', x.creado_en) FROM registros_auditoria x
+            WHERE x.accion = 'fraude.analisis_ia' AND x.entidad_id = a.id::text AND x.resultado = 'ok'
+            ORDER BY x.creado_en LIMIT 1) AS analisis,
+          (SELECT count(*)::int FROM registros_auditoria x
+            WHERE x.accion = 'fraude.analisis_ia' AND x.entidad_id = a.id::text AND x.resultado = 'fallo') AS fallos
+        FROM registros_auditoria a
+        WHERE a.organizacion_id = ${organizacionId}::uuid AND a.accion = 'fraude.alerta'
+          AND (${patron}::text IS NULL OR a.detalle->>'patron' = ${patron}::text)
+          AND (${antes}::timestamptz IS NULL OR a.creado_en < ${antes}::timestamptz)
+        ORDER BY a.creado_en DESC, a.id DESC
         LIMIT ${limite + 1}`;
         const hayMas = filas.length > limite;
         const pagina = filas.slice(0, limite);
@@ -69,6 +81,7 @@ export class AlertasService {
           bloqueoHasta: f.detalle.bloqueoHasta
             ? new Date(f.detalle.bloqueoHasta)
             : undefined,
+          ...analisisDe(f),
         }));
         return {
           alertas,
@@ -158,4 +171,27 @@ export class AlertasService {
       organizacionId,
     });
   }
+}
+
+/** PB-10: estado y, si existe, el análisis de IA de la alerta (solo los campos validados). */
+function analisisDe(
+  f: FilaAuditoria,
+): Pick<AlertaDto, 'estadoAnalisis' | 'analisis'> {
+  const a = f.analisis;
+  if (a)
+    return {
+      estadoAnalisis: 'listo',
+      analisis: {
+        riesgo: a.riesgo,
+        puntaje: a.puntaje,
+        motivos: a.motivos,
+        recomendacion: a.recomendacion,
+        proveedor: a.proveedor,
+        analizadoEn: new Date(a.analizado_en),
+      },
+    };
+  return {
+    estadoAnalisis:
+      (f.fallos ?? 0) >= INTENTOS_MAXIMOS ? 'sin_analisis' : 'pendiente',
+  };
 }

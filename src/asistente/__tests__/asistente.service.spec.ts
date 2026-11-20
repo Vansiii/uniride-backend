@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AsistenteService } from '../asistente.service.js';
-import type { GroqServicio } from '../groq.servicio.js';
+import type { GroqServicio } from '../../ia/groq.servicio.js';
 
 const crear = (respuestaGroq: string | null = null) => {
   const groq = { completarJson: vi.fn().mockResolvedValue(respuestaGroq) };
