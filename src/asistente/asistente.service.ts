@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GroqServicio } from './groq.servicio.js';
+import { GroqServicio } from '../ia/groq.servicio.js';
 import type {
   AccionAsistenteDto,
   RespuestaAsistenteDto,
