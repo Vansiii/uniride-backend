@@ -73,6 +73,34 @@ describe('Asistente (e2e)', () => {
     expect(res.body.codigo).toBe('NO_AUTENTICADO');
   });
 
+  it('sin organización activa responde 200 con guía de afiliación', async () => {
+    const token = await jwt.signAsync(
+      { sub: 'usuario-sin-org', org: null, cli: 'movil' },
+      { secret: secretoJwt },
+    );
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/asistente/consultar')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ consulta: 'buscar viaje' })
+      .expect(200);
+    expect(res.body.accion.ruta).toBe('/agregar-organizacion');
+  });
+
+  it('RN-6: la consulta 16 en un minuto responde 429', async () => {
+    const token = await jwt.signAsync(
+      { sub: 'usuario-limite', org: null, cli: 'movil' },
+      { secret: secretoJwt },
+    );
+    const consultar = () =>
+      request(app.getHttpServer())
+        .post('/api/v1/asistente/consultar')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ consulta: 'saldo' });
+    for (let i = 0; i < 15; i++) await consultar().expect(200);
+    const res = await consultar().expect(429);
+    expect(res.body.codigo).toBe('LIMITE_ALCANZADO');
+  });
+
   it('expone el endpoint del asistente en Swagger /api/docs-json', async () => {
     const respuesta = await request(app.getHttpServer())
       .get('/api/docs-json')
