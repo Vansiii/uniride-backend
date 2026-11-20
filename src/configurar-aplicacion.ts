@@ -12,6 +12,10 @@ type Operacion = { description?: string } & Record<string, unknown>;
 /** Configuración compartida por main.ts y las pruebas e2e. */
 export function configurarAplicacion(app: INestApplication): void {
   app.setGlobalPrefix('api/v1');
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
   // Sin ETag: las respuestas son datos privados de cada usuario, y un 304 tras renovar la sesión llegaba a la app
   // como error («Algo salió mal»).
   app.getHttpAdapter().getInstance().set('etag', false);

@@ -20,6 +20,7 @@ describe('Asistente (e2e)', () => {
     })
       .overrideProvider(PrismaService)
       .useValue({
+        usuario: { findUnique: vi.fn().mockResolvedValue(null) },
         enOrganizacion: vi.fn().mockResolvedValue(null),
       })
       .compile();

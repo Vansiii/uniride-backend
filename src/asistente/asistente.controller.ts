@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -16,19 +17,18 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import {
-  OrganizacionActual,
   UsuarioActual,
   type UsuarioToken,
 } from '../comun/decoradores.js';
-import { OrganizacionGuard } from '../comun/organizacion.guard.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
+import { AsistenteGuard } from './asistente.guard.js';
 import { AsistenteService } from './asistente.service.js';
 import { ConsultaAsistenteDto } from './dto/consulta-asistente.dto.js';
 import { RespuestaAsistenteDto } from './dto/respuesta-asistente.dto.js';
 
 @ApiTags('asistente')
 @ApiBearerAuth()
-@UseGuards(OrganizacionGuard)
+@UseGuards(AsistenteGuard)
 @Controller('asistente')
 export class AsistenteController {
   constructor(private readonly asistenteService: AsistenteService) {}
@@ -59,10 +59,11 @@ export class AsistenteController {
   async consultar(
     @Body() dto: ConsultaAsistenteDto,
     @UsuarioActual() usuario: UsuarioToken,
-    @OrganizacionActual() _organizacionId: string,
+    @Req() peticion: any,
   ): Promise<RespuestaAsistenteDto> {
     const cliente = usuario.cli || 'movil';
-    return this.asistenteService.consultar(dto.consulta, cliente);
+    const rol = peticion.rolOrganizacion;
+    return this.asistenteService.consultar(dto.consulta, cliente, rol);
   }
 }
 
