@@ -2,6 +2,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { CorreosService } from '../notificaciones/correos.service.js';
+import type { PushService } from '../notificaciones/push.service.js';
 import { renderizar } from '../notificaciones/plantillas.js';
 import { MembresiasService } from './membresias.service.js';
 
@@ -29,12 +30,14 @@ function crear() {
   };
   const auditoria = { registrar: vi.fn().mockResolvedValue(undefined) };
   const correos = { encolar: vi.fn().mockResolvedValue(undefined) };
+  const push = { encolar: vi.fn() };
   const servicio = new MembresiasService(
     prisma as unknown as PrismaService,
     auditoria as unknown as AuditoriaService,
     correos as unknown as CorreosService,
+    push as unknown as PushService,
   );
-  return { servicio, prisma, tx, auditoria, correos };
+  return { servicio, push, prisma, tx, auditoria, correos };
 }
 
 describe('MembresiasService.listar', () => {
@@ -76,13 +79,19 @@ describe('MembresiasService.listar', () => {
 
 describe('MembresiasService.decidir', () => {
   it('CA-2 y CA-4: aprueba con un update condicional, fija la organización si no tenía, audita y encola el correo', async () => {
-    const { servicio, tx, auditoria, correos } = crear();
+    const { servicio, tx, auditoria, correos, push } = crear();
     await expect(
       servicio.decidir(ORG, MEMBRESIA, 'admin', {
         decision: 'aprobar',
         motivo: 'ignorado',
       }),
     ).resolves.toEqual({ id: MEMBRESIA, estado: 'aprobada' });
+    expect(push.encolar).toHaveBeenCalledWith(
+      tx,
+      expect.any(String),
+      'membresia_aprobada',
+      expect.objectContaining({ organizacion: expect.any(String) }),
+    );
     expect(tx.membresia.updateMany).toHaveBeenCalledWith({
       where: { id: MEMBRESIA, organizacionId: ORG, estado: 'pendiente' },
       data: {
@@ -152,7 +161,7 @@ describe('MembresiasService.decidir', () => {
   });
 
   it('CA-5: ya decidida responde MEMBRESIA_YA_DECIDIDA, audita el fallo y no encola correo', async () => {
-    const { servicio, tx, auditoria, correos } = crear();
+    const { servicio, tx, auditoria, correos, push } = crear();
     tx.membresia.updateMany.mockResolvedValue({ count: 0 });
     const error = await servicio
       .decidir(ORG, MEMBRESIA, 'admin', { decision: 'rechazar' })
@@ -167,6 +176,7 @@ describe('MembresiasService.decidir', () => {
       tx,
     );
     expect(correos.encolar).not.toHaveBeenCalled();
+    expect(push.encolar).not.toHaveBeenCalled();
     expect(tx.usuario.updateMany).not.toHaveBeenCalled();
   });
 

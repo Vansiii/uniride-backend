@@ -7,6 +7,7 @@ import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje } from '../generated/prisma/client.js';
 import { EstadoViajeService } from '../viajes/estado-viaje.service.js';
 import { CorreosService } from '../notificaciones/correos.service.js';
+import { PushService } from '../notificaciones/push.service.js';
 import { politicaCancelacion } from './politica-cancelacion.js';
 import type {
   CancelarReservaDto,
@@ -22,6 +23,7 @@ export class CancelacionesService {
     private readonly estadoViaje: EstadoViajeService,
     private readonly correos: CorreosService,
     private readonly blockchain: BlockchainService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -40,10 +42,12 @@ export class CancelacionesService {
       const reservaPrevia = await tx.reserva.findFirst({
         where: { id: reservaId, organizacionId },
         include: {
+          pasajero: { select: { nombreCompleto: true } },
           viaje: {
             select: {
               id: true,
               conductorId: true,
+              destinoNombre: true,
               fechaHoraSalida: true,
               cuposTotales: true,
               cuposDisponibles: true,
@@ -225,6 +229,18 @@ export class CancelacionesService {
         `;
       }
 
+      // PB-09: aviso al conductor.
+      await this.push.encolar(
+        tx,
+        reservaPrevia.viaje.conductorId,
+        'reserva_cancelada',
+        {
+          pasajero: reservaPrevia.pasajero.nombreCompleto.trim().split(' ')[0],
+          destino: reservaPrevia.viaje.destinoNombre,
+          ruta: `/viajes/${reservaPrevia.viaje.id}`,
+        },
+      );
+
       // Auditoría
       await this.auditoria.registrar(
         {
@@ -274,6 +290,7 @@ export class CancelacionesService {
           conductorId: true,
           estado: true,
           fechaHoraSalida: true,
+          destinoNombre: true,
         },
       });
 
@@ -374,6 +391,11 @@ export class CancelacionesService {
               fecha: viaje.fechaHoraSalida.toISOString(),
               monto: r.monto.toFixed(2),
             },
+          });
+          await this.push.encolar(tx, r.pasajeroId, 'viaje_cancelado', {
+            destino: viaje.destinoNombre,
+            monto: r.monto.toFixed(2),
+            ruta: `/reserva/${r.id}`,
           });
           await this.auditoria.registrar(
             {

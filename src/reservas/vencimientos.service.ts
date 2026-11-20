@@ -8,6 +8,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import { EstadoViaje } from '../generated/prisma/client.js';
 import { CorreosService } from '../notificaciones/correos.service.js';
+import { PushService } from '../notificaciones/push.service.js';
 import { EstadoViajeService } from '../viajes/estado-viaje.service.js';
 
 export interface ResumenVencimientos {
@@ -38,6 +39,7 @@ export class VencimientosService implements OnModuleInit, OnModuleDestroy {
     private readonly auditoria: AuditoriaService,
     private readonly estadoViaje: EstadoViajeService,
     private readonly correos: CorreosService,
+    private readonly push: PushService,
   ) {
     this.intervaloMs = process.env.VENCIMIENTOS_INTERVALO_MS
       ? parseInt(process.env.VENCIMIENTOS_INTERVALO_MS, 10)
@@ -119,6 +121,7 @@ export class VencimientosService implements OnModuleInit, OnModuleDestroy {
           pasajeroId: true,
           organizacionId: true,
           viajeId: true,
+          viaje: { select: { destinoNombre: true } },
         },
       }),
     );
@@ -160,6 +163,12 @@ export class VencimientosService implements OnModuleInit, OnModuleDestroy {
               operacion: 'reembolsar_reserva',
               estado: 'pendiente',
             },
+          });
+
+          await this.push.encolar(tx, r.pasajeroId, 'reserva_expirada', {
+            destino: r.viaje.destinoNombre,
+            monto: r.monto.toFixed(2),
+            ruta: `/reserva/${r.id}`,
           });
 
           await this.auditoria.registrar(
@@ -214,7 +223,13 @@ export class VencimientosService implements OnModuleInit, OnModuleDestroy {
           pasajeroId: true,
           organizacionId: true,
           pasajero: { select: { nombreCompleto: true, correo: true } },
-          viaje: { select: { estado: true, fechaHoraSalida: true } },
+          viaje: {
+            select: {
+              estado: true,
+              fechaHoraSalida: true,
+              destinoNombre: true,
+            },
+          },
         },
       }),
     );
@@ -266,6 +281,17 @@ export class VencimientosService implements OnModuleInit, OnModuleDestroy {
               estado: 'pendiente',
             },
           });
+
+          await this.push.encolar(
+            tx,
+            r.pasajeroId,
+            esCancelado ? 'viaje_cancelado' : 'reserva_expirada',
+            {
+              destino: r.viaje.destinoNombre,
+              monto: r.monto.toFixed(2),
+              ruta: `/reserva/${r.id}`,
+            },
+          );
 
           if (esCancelado) {
             await this.correos.encolar(tx, {
