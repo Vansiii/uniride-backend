@@ -97,6 +97,17 @@ interface Fila {
 }
 const bloqueoVigente = (fila: Fila | null, ahora: Date) =>
   Boolean(fila?.bloqueadoHasta && fila.bloqueadoHasta > ahora);
+/** Verificada sin foto del carnet (cuentas anteriores a S3 o de demostración): puede completarse con HU-08. */
+const sinCarnet = (fila: (Fila & { claveS3Carnet: string | null }) | null) =>
+  fila?.estado === 'verificada' && !fila.claveS3Carnet;
+const completa = (fila: (Fila & { claveS3Carnet: string | null }) | null) =>
+  fila?.estado === 'verificada' && !sinCarnet(fila);
+const identidadSinCarnet = () =>
+  new ErrorNegocio(
+    409,
+    'IDENTIDAD_SIN_CARNET',
+    'identidad.verificacion.sin_carnet',
+  );
 
 @Injectable()
 export class IdentidadService implements OnModuleInit {
@@ -118,7 +129,7 @@ export class IdentidadService implements OnModuleInit {
   /** Abre la sesión de Face Liveness (RN-4: la prueba de vida es en vivo, con la cámara de la app). */
   async crearSesionLiveness(usuarioId: string): Promise<SesionLivenessDto> {
     const fila = await this.leer(usuarioId);
-    if (fila?.estado === 'verificada') throw yaVerificada();
+    if (completa(fila)) throw yaVerificada();
     if (bloqueoVigente(fila, new Date()))
       throw new ErrorNegocio(
         403,
@@ -163,6 +174,8 @@ export class IdentidadService implements OnModuleInit {
     if (bloqueoVigente(fila, new Date())) {
       throw intentosAgotados(fila!.bloqueadoHasta!);
     }
+    // Se avisa antes de abrir la cámara: sin carnet la prueba de vida no tendría contra qué compararse.
+    if (sinCarnet(fila)) throw identidadSinCarnet();
     return await this.motor((m) => m.crearSesionLiveness());
   }
 
@@ -205,12 +218,8 @@ export class IdentidadService implements OnModuleInit {
         modelo,
       );
     }
-    if (!fila.claveS3Carnet) {
-      this.registro.error(
-        `Identidad verificada de ${usuarioId} no tiene claveS3Carnet`,
-      );
-      throw noDisponible();
-    }
+    // Sin carnet no hay contra qué comparar el rostro (A-04): no se salta la comparación, se pide completar HU-08.
+    if (!fila.claveS3Carnet) throw identidadSinCarnet();
 
     let carnet: Buffer;
     try {
@@ -271,7 +280,7 @@ export class IdentidadService implements OnModuleInit {
       );
 
     const fila = await this.leer(usuarioId);
-    if (fila?.estado === 'verificada') throw yaVerificada();
+    if (completa(fila)) throw yaVerificada();
     const ahora = new Date();
     if (fila?.bloqueadoHasta && fila.bloqueadoHasta > ahora)
       throw intentosAgotados(fila.bloqueadoHasta);
@@ -377,6 +386,7 @@ export class IdentidadService implements OnModuleInit {
         estado: 'no_verificada',
         verificadoEn: null,
         bloqueadoHasta: null,
+        requiereCarnet: false,
       };
     const vigente = bloqueoVigente(fila, new Date());
     const estado =
@@ -387,13 +397,19 @@ export class IdentidadService implements OnModuleInit {
       estado,
       verificadoEn: fila.verificadoEn,
       bloqueadoHasta: vigente ? fila.bloqueadoHasta : null,
+      requiereCarnet: sinCarnet(fila),
     };
   }
 
   private leer(usuarioId: string) {
     return this.prisma.identidad.findUnique({
       where: { usuarioId },
-      select: { estado: true, bloqueadoHasta: true, verificadoEn: true },
+      select: {
+        estado: true,
+        bloqueadoHasta: true,
+        verificadoEn: true,
+        claveS3Carnet: true,
+      },
     });
   }
 
@@ -444,8 +460,18 @@ export class IdentidadService implements OnModuleInit {
       const { count } = await tx.identidad.updateMany({
         where: {
           usuarioId,
-          estado: { not: 'verificada' },
-          OR: [{ bloqueadoHasta: null }, { bloqueadoHasta: { lte: ahora } }],
+          AND: [
+            // Una verificada sin carnet se completa: queda con carnet, rostro indexado y documento real.
+            {
+              OR: [{ estado: { not: 'verificada' } }, { claveS3Carnet: null }],
+            },
+            {
+              OR: [
+                { bloqueadoHasta: null },
+                { bloqueadoHasta: { lte: ahora } },
+              ],
+            },
+          ],
         },
         data: {
           estado: 'verificada',
