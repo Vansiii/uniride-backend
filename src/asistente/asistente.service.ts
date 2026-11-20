@@ -180,7 +180,8 @@ REGLAS DE FORMATO:
         accion = {
           ruta: datos.accion.ruta,
           params:
-            typeof datos.accion.params === 'object' && datos.accion.params !== null
+            typeof datos.accion.params === 'object' &&
+            datos.accion.params !== null
               ? datos.accion.params
               : undefined,
           etiquetaBoton:
@@ -523,7 +524,10 @@ REGLAS DE FORMATO:
             'Supervisar invitaciones a administradores institucionales',
             'Analizar las métricas globales de uso y CO₂ evitado',
           ],
-          accion: { ruta: '/organizaciones', etiquetaBoton: 'Ver organizaciones' },
+          accion: {
+            ruta: '/organizaciones',
+            etiquetaBoton: 'Ver organizaciones',
+          },
         };
       }
 

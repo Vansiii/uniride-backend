@@ -1,8 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { ErrorNegocio } from '../comun/error-negocio.js';
 import { PrismaService } from '../comun/prisma.service.js';
 import type { UsuarioToken } from '../comun/decoradores.js';

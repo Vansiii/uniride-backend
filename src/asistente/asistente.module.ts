@@ -10,4 +10,3 @@ import { GroqServicio } from './groq.servicio.js';
   exports: [AsistenteService],
 })
 export class AsistenteModule {}
-

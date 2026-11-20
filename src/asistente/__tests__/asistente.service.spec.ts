@@ -19,10 +19,7 @@ describe('AsistenteService', () => {
     };
 
     const servicio = new AsistenteService(mockGroq as GroqServicio);
-    const resultado = await servicio.consultar(
-      'quiero ir a la UAGRM',
-      'movil',
-    );
+    const resultado = await servicio.consultar('quiero ir a la UAGRM', 'movil');
 
     expect(resultado.modo).toBe('accion');
     expect(resultado.mensaje).toBe('Te llevo a buscar viajes para mañana.');
@@ -70,7 +67,10 @@ describe('AsistenteService', () => {
     };
 
     const servicio = new AsistenteService(mockGroq as GroqServicio);
-    const resultado = await servicio.consultar('cómo funciona el pago en garantía?', 'movil');
+    const resultado = await servicio.consultar(
+      'cómo funciona el pago en garantía?',
+      'movil',
+    );
 
     expect(resultado.modo).toBe('guia');
     expect(resultado.pasos).toBeDefined();
@@ -147,4 +147,3 @@ describe('AsistenteService', () => {
     expect(resultadoSolicitudes.accion?.ruta).toBe('/organizacion/solicitudes');
   });
 });
-

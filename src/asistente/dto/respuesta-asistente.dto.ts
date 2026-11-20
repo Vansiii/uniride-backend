@@ -51,4 +51,3 @@ export class RespuestaAsistenteDto {
   })
   pasos?: string[];
 }
-

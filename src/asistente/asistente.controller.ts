@@ -16,10 +16,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import {
-  UsuarioActual,
-  type UsuarioToken,
-} from '../comun/decoradores.js';
+import { UsuarioActual, type UsuarioToken } from '../comun/decoradores.js';
 import { ErrorDto } from '../organizaciones/dto/afiliacion.dto.js';
 import { AsistenteGuard } from './asistente.guard.js';
 import { AsistenteService } from './asistente.service.js';
@@ -66,4 +63,3 @@ export class AsistenteController {
     return this.asistenteService.consultar(dto.consulta, cliente, rol);
   }
 }
-

@@ -12,4 +12,3 @@ export class ConsultaAsistenteDto {
   @MaxLength(500)
   consulta!: string;
 }
-

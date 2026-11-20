@@ -11,7 +11,8 @@ import { PrismaService } from '../src/comun/prisma.service.js';
 describe('Asistente (e2e)', () => {
   let app: INestApplication<App>;
   let jwt: JwtService;
-  const secretoJwt = process.env.JWT_ACCESO_SECRETO || 'secreto-pruebas-asistente';
+  const secretoJwt =
+    process.env.JWT_ACCESO_SECRETO || 'secreto-pruebas-asistente';
 
   beforeAll(async () => {
     process.env.JWT_ACCESO_SECRETO = secretoJwt;
