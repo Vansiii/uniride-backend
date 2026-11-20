@@ -131,9 +131,9 @@ describe('IdentidadService.verificar', () => {
     expect(c.indexar).toHaveBeenCalledWith(contenido, USUARIO);
 
     const { where, data } = c.identidad.updateMany.mock.calls[0][0];
-    expect(where).toMatchObject({
-      usuarioId: USUARIO,
-      estado: { not: 'verificada' },
+    expect(where).toMatchObject({ usuarioId: USUARIO });
+    expect(where.AND[0]).toEqual({
+      OR: [{ estado: { not: 'verificada' } }, { claveS3Carnet: null }],
     });
     expect(data).toMatchObject({
       estado: 'verificada',
@@ -175,7 +175,9 @@ describe('IdentidadService.verificar', () => {
   });
 
   it('una identidad ya verificada responde 400 IDENTIDAD_YA_VERIFICADA sin gastar llamadas', async () => {
-    const c = crear({ fila: { estado: 'verificada', bloqueadoHasta: null } });
+    const c = crear({
+      fila: { estado: 'verificada', bloqueadoHasta: null, claveS3Carnet: 'c' },
+    });
     await rechazo(c, [400, 'IDENTIDAD_YA_VERIFICADA']);
     expect(c.liveness).not.toHaveBeenCalled();
     expect(intentoContado(c)).toBe(false);
@@ -509,7 +511,9 @@ describe('IdentidadService.crearSesionLiveness', () => {
   });
 
   it('ya verificada → 400 IDENTIDAD_YA_VERIFICADA', async () => {
-    const c = crear({ fila: { estado: 'verificada', bloqueadoHasta: null } });
+    const c = crear({
+      fila: { estado: 'verificada', bloqueadoHasta: null, claveS3Carnet: 'c' },
+    });
     const error = await fallo(c.servicio.crearSesionLiveness(USUARIO));
     expect([error.getStatus(), error.codigo]).toEqual([
       400,
@@ -556,6 +560,7 @@ describe('IdentidadService.estado', () => {
       estado: 'no_verificada',
       verificadoEn: null,
       bloqueadoHasta: null,
+      requiereCarnet: false,
     });
   });
 
@@ -576,11 +581,13 @@ describe('IdentidadService.estado', () => {
       estado: 'verificada',
       verificadoEn,
       bloqueadoHasta: null,
+      requiereCarnet: false,
     });
     expect(c.identidad.findUnique.mock.calls[0][0].select).toEqual({
       estado: true,
       bloqueadoHasta: true,
       verificadoEn: true,
+      claveS3Carnet: true,
     });
   });
 
@@ -598,6 +605,7 @@ describe('IdentidadService.estado', () => {
       estado: 'bloqueada_temporal',
       verificadoEn: null,
       bloqueadoHasta: hasta,
+      requiereCarnet: false,
     });
     await expect(
       crear({
@@ -611,6 +619,7 @@ describe('IdentidadService.estado', () => {
       estado: 'no_verificada',
       verificadoEn: null,
       bloqueadoHasta: null,
+      requiereCarnet: false,
     });
   });
 });
@@ -654,7 +663,9 @@ describe('HU-10 · comprobarRostroDelTitular y revinculacion', () => {
   });
 
   it('crearSesionLivenessRevinculacion: sin bloqueo devuelve id de sesion', async () => {
-    const c = crear({ fila: { estado: 'verificada', bloqueadoHasta: null } });
+    const c = crear({
+      fila: { estado: 'verificada', bloqueadoHasta: null, claveS3Carnet: 'c' },
+    });
     const id = await c.servicio.crearSesionLivenessRevinculacion(USUARIO);
     expect(typeof id).toBe('string');
   });
@@ -881,5 +892,67 @@ describe('HU-10 · comprobarRostroDelTitular y revinculacion', () => {
         data: { intentosFallidos: 0, bloqueadoHasta: null },
       }),
     );
+  });
+});
+
+describe('Identidad verificada sin foto del carnet (cuentas de demostración o anteriores a S3)', () => {
+  const sinCarnet = {
+    id: 'i1',
+    estado: 'verificada',
+    claveS3Carnet: null,
+    intentosFallidos: 0,
+    bloqueadoHasta: null,
+    verificadoEn: new Date(),
+  };
+
+  it('estado la informa verificada pero con requiereCarnet', async () => {
+    const r = await crear({ fila: sinCarnet }).servicio.estado(USUARIO);
+    expect(r).toMatchObject({ estado: 'verificada', requiereCarnet: true });
+  });
+
+  it('A-04: revincular no se salta la comparación facial: 409 IDENTIDAD_SIN_CARNET sin motor, sin S3 ni intento', async () => {
+    const c = crear({ fila: sinCarnet });
+    await expect(
+      c.servicio.comprobarRostroDelTitular(USUARIO, 'sesion-1'),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { codigo: 'IDENTIDAD_SIN_CARNET' },
+    });
+    expect(c.almacenamiento.descargar).not.toHaveBeenCalled();
+    expect(c.liveness).not.toHaveBeenCalled();
+    expect(c.comparar).not.toHaveBeenCalled();
+    expect(intentoContado(c)).toBe(false);
+  });
+
+  it('el desafío de revinculación avisa antes de abrir la cámara', async () => {
+    const c = crear({ fila: sinCarnet });
+    const crearSesion = vi.spyOn(c.motor, 'crearSesionLiveness');
+    await expect(
+      c.servicio.crearSesionLivenessRevinculacion(USUARIO),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(crearSesion).not.toHaveBeenCalled();
+  });
+
+  it('puede completarse con HU-08: abre sesión y verifica con carnet, rostro indexado y documento real', async () => {
+    const c = crear({ fila: sinCarnet });
+    await expect(c.servicio.crearSesionLiveness(USUARIO)).resolves.toEqual({
+      sesionId: expect.any(String),
+    });
+    const r = await c.servicio.verificar(USUARIO, dto(), foto());
+    expect(r.estado).toBe('verificada');
+    expect(c.liveness).toHaveBeenCalled();
+    expect(c.comparar).toHaveBeenCalled();
+    const { data } = c.identidad.updateMany.mock.calls[0][0];
+    expect(data).toMatchObject({
+      claveS3Carnet: expect.stringMatching(/^identidades\//),
+      faceIdColeccion: expect.any(String),
+      documentoHash: hashDocumento('1234567-1A'),
+    });
+  });
+
+  it('A-02: completar con un carnet que ya es de otra cuenta se rechaza', async () => {
+    const c = crear({ fila: sinCarnet, duenoDocumento: OTRO });
+    await rechazo(c, [409, 'DOCUMENTO_DUPLICADO']);
+    expect(c.almacenamiento.subir).not.toHaveBeenCalled();
   });
 });

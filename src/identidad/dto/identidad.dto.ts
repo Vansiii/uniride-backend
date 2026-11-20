@@ -99,4 +99,9 @@ export class EstadoIdentidadDto {
     description: 'Hasta cuándo dura el bloqueo temporal; `null` si no hay',
   })
   bloqueadoHasta!: Date | null;
+  @ApiProperty({
+    description:
+      '`true` si la identidad está verificada pero sin foto del carnet (cuentas anteriores a S3 o de demostración): sin ella no hay contra qué comparar el rostro al volver a vincular el teléfono (HU-10), así que debe completarse con `POST /identidad/verificar`.',
+  })
+  requiereCarnet!: boolean;
 }

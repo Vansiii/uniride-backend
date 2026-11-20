@@ -102,6 +102,11 @@ export class DispositivosController {
     description:
       '`INTENTOS_AGOTADOS`: la cuenta está bloqueada 24 h por fallos previos (CA-7).',
   })
+  @ApiConflictResponse({
+    type: ErrorDto,
+    description:
+      '`IDENTIDAD_SIN_CARNET`: identidad verificada sin foto del carnet; completar con `POST /identidad/verificar`. No cuenta como intento.',
+  })
   @ApiServiceUnavailableResponse({
     type: ErrorDto,
     description:
@@ -136,7 +141,7 @@ export class DispositivosController {
   @ApiConflictResponse({
     type: ErrorDto,
     description:
-      '`CONFLICTO_CONCURRENTE`: otra revinculación de la misma cuenta ganó al mismo tiempo; nada de esta cambió.',
+      '`CONFLICTO_CONCURRENTE`: otra revinculación de la misma cuenta ganó al mismo tiempo; nada de esta cambió. `IDENTIDAD_SIN_CARNET`: identidad verificada sin foto del carnet; completar con `POST /identidad/verificar` (no cuenta como intento).',
   })
   @ApiServiceUnavailableResponse({
     type: ErrorDto,
