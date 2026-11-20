@@ -8,6 +8,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { RIESGOS, type Riesgo } from '../analisis-riesgo.js';
 import { PATRONES, type Patron } from '../patrones.js';
 
 export class FiltroAlertasDto {
@@ -39,6 +40,21 @@ export class PersonaAlertaDto {
   rol!: 'conductor' | 'pasajero';
 }
 
+/** PB-10: sugerencia de IA; la decisión es del administrador (RN-9). */
+export class AnalisisIaDto {
+  @ApiProperty({ enum: RIESGOS }) riesgo!: Riesgo;
+  @ApiProperty({ minimum: 0, maximum: 100 }) puntaje!: number;
+  @ApiProperty({ type: [String], description: '1 a 3 motivos' })
+  motivos!: string[];
+  @ApiProperty() recomendacion!: string;
+  @ApiProperty({
+    enum: ['local', 'groq'],
+    description: 'IA local (Kaggle) o de respaldo (Groq)',
+  })
+  proveedor!: 'local' | 'groq';
+  @ApiProperty() analizadoEn!: Date;
+}
+
 export class AlertaDto {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() creadoEn!: Date;
@@ -50,6 +66,13 @@ export class AlertaDto {
   @ApiPropertyOptional() minutos?: number;
   @ApiPropertyOptional({ description: 'Fin del bloqueo, si hubo.' })
   bloqueoHasta?: Date;
+  @ApiProperty({
+    enum: ['listo', 'pendiente', 'sin_analisis'],
+    description: 'PB-10: estado del análisis de IA',
+  })
+  estadoAnalisis!: 'listo' | 'pendiente' | 'sin_analisis';
+  @ApiPropertyOptional({ type: AnalisisIaDto })
+  analisis?: AnalisisIaDto;
 }
 
 export class AlertasRespuestaDto {
