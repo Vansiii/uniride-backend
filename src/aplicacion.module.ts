@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AsistenteModule } from './asistente/asistente.module.js';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
 import { AutenticacionModule } from './autenticacion/autenticacion.module.js';
 import { BilleteraModule } from './billetera/billetera.module.js';
@@ -18,6 +19,7 @@ import { ViajesModule } from './viajes/viajes.module.js';
 
 @Module({
   imports: [
+    AsistenteModule,
     AuditoriaModule,
     NotificacionesModule,
     AutenticacionModule,
