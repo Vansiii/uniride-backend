@@ -125,6 +125,12 @@ export class AlertaDto {
   @ApiProperty({ type: [PersonaAlertaDto] }) personas!: PersonaAlertaDto[];
   @ApiPropertyOptional({ type: [FactorDto], description: 'PB-11' })
   factores?: FactorDto[];
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 100,
+    description: 'PB-11: puntaje del modelo con que se creó la alerta',
+  })
+  puntajeModelo?: number;
   @ApiPropertyOptional({ type: GrafoAnilloDto, description: 'PB-11: anillo' })
   grafo?: GrafoAnilloDto;
   @ApiPropertyOptional({ type: DecisionAlertaDto, description: 'PB-11' })

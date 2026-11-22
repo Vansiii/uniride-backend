@@ -42,6 +42,7 @@ interface FilaAuditoria {
     hasta?: string;
     /** PB-11. */
     factores?: Factor[];
+    puntaje?: number;
     viajesInternos?: number;
     proporcion?: number;
     aristas?: { a: string; b: string; viajes: number }[];
@@ -118,6 +119,7 @@ export class AlertasService {
             origen: origenDe(f.detalle.patron),
             personas,
             factores: f.analisis?.factores ?? f.detalle.factores,
+            puntajeModelo: f.detalle.puntaje,
             grafo: grafoDe(f, personas),
             decision: f.decision
               ? {
