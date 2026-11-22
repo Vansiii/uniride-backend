@@ -1,8 +1,20 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -21,10 +33,15 @@ import { AlertasService } from './alertas.service.js';
 import {
   AlertasRespuestaDto,
   BloqueosVigentesRespuestaDto,
+  DecidirAlertaDto,
+  DesempenoDto,
   FiltroAlertasDto,
 } from './dto/alertas.dto.js';
 
-/** HU-26: solo lectura. No hay rutas que creen, editen ni levanten alertas o bloqueos (CA-8). */
+/**
+ * HU-26: no hay rutas que creen, editen ni levanten alertas o bloqueos (CA-8). PB-11 suma la decisión del administrador,
+ * que solo queda en la auditoría (CA-12), y el desempeño del modelo.
+ */
 @ApiTags('fraude')
 @ApiBearerAuth()
 @ApiForbiddenResponse({
@@ -64,5 +81,41 @@ export class AlertasController {
     return {
       bloqueos: await this.servicio.bloqueosVigentes(organizacionId, actor.id),
     };
+  }
+
+  @Post('alertas-fraude/:id/decision')
+  @HttpCode(204)
+  @ApiNoContentResponse({
+    description:
+      'PB-11: «Fraude confirmado» o «Falso positivo». Rige la última; no toca bloqueos.',
+  })
+  @ApiNotFoundResponse({
+    type: ErrorDto,
+    description: '`ALERTA_NO_ENCONTRADA` (también si es de otra organización)',
+  })
+  @ApiBadRequestResponse({
+    type: ErrorDto,
+    description: '`VALIDACION_FALLIDA`',
+  })
+  decidir(
+    @OrganizacionActual() organizacionId: string,
+    @UsuarioActual() actor: UsuarioToken,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DecidirAlertaDto,
+  ) {
+    return this.servicio.decidir(organizacionId, actor.id, id, dto);
+  }
+
+  @Get('fraude/desempeno')
+  @ApiOkResponse({
+    type: DesempenoDto,
+    description:
+      'PB-11: estado del modelo propio, precisión por origen y validación con escenarios simulados.',
+  })
+  desempeno(
+    @OrganizacionActual() organizacionId: string,
+    @UsuarioActual() actor: UsuarioToken,
+  ) {
+    return this.servicio.desempeno(organizacionId, actor.id);
   }
 }

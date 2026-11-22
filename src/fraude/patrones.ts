@@ -6,6 +6,14 @@ export const PATRONES = [
 ] as const;
 export type Patron = (typeof PATRONES)[number];
 
+/** PB-11: patrones del modelo propio y de anillos. Solo alertan: nunca bloquean (RN-1). */
+export const PATRONES_ALERTA = [
+  ...PATRONES,
+  'comportamiento_atipico',
+  'anillo_colusion',
+] as const;
+export type PatronAlerta = (typeof PATRONES_ALERTA)[number];
+
 /** HU-25 RN-11: umbrales fijos en v1; cambiarlos es un cambio de spec. */
 export const HORA_MS = 3_600_000;
 export const DIA_MS = 24 * HORA_MS;
