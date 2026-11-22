@@ -11,13 +11,16 @@ import { distanciaM } from '../presencia/geo.js';
 import {
   ALERTAS_POR_CICLO,
   INTENTOS_MAXIMOS,
+  numerosDe,
   PROMPT_SISTEMA,
+  PROMPT_SISTEMA_MODELO,
   textoPerfil,
   validarAnalisis,
   type CifrasPar,
   type CifrasPersona,
   type Perfil,
 } from './analisis-riesgo.js';
+import { ModeloRiesgoService } from './modelo-riesgo.service.js';
 import { DIA_MS, ordenarPar } from './patrones.js';
 
 interface AlertaPendiente {
@@ -27,10 +30,12 @@ interface AlertaPendiente {
   detalle: {
     patron: string;
     personas: string[];
-    reservaId: string;
+    reservaId?: string;
     cantidad?: number;
     distanciaM?: number;
     minutos?: number;
+    viajesInternos?: number;
+    proporcion?: number;
   };
 }
 
@@ -53,6 +58,7 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
     private readonly ia: IaServicio,
+    private readonly modeloRiesgo: ModeloRiesgoService,
   ) {}
 
   onModuleInit(): void {
@@ -113,17 +119,41 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
     const perfil = await this.prisma.enOrganizacion(a.organizacion_id, (tx) =>
       this.perfil(tx, a, ahora),
     );
+    // PB-11 CA-5: con modelo propio vigente, el puntaje y el riesgo salen de él.
+    const propio = await this.modeloRiesgo.puntajeDe(
+      a.organizacion_id,
+      a.detalle.personas,
+      ahora,
+    );
+    if (propio)
+      perfil.modelo = {
+        puntaje: propio.puntaje,
+        riesgo: propio.riesgo,
+        factores: propio.factores,
+        percentiles: propio.percentiles,
+      };
+    const texto = textoPerfil(perfil);
     // La IA se llama fuera de la transacción: puede tardar hasta 30 s.
     const respuesta = await this.ia.completarJson(
-      PROMPT_SISTEMA,
-      textoPerfil(perfil),
+      propio ? PROMPT_SISTEMA_MODELO : PROMPT_SISTEMA,
+      texto,
     );
-    const analisis = respuesta ? validarAnalisis(respuesta.json) : null;
+    const analisis = respuesta
+      ? validarAnalisis(
+          respuesta.json,
+          propio ? { ...propio, numeros: numerosDe(texto) } : undefined,
+        )
+      : null;
     const detalle = analisis
       ? {
           ...analisis,
           proveedor: respuesta!.proveedor,
           modelo: respuesta!.modelo,
+          origenPuntaje: propio ? 'modelo' : 'estimado',
+          ...(propio && {
+            factores: propio.factores,
+            versionModelo: propio.version,
+          }),
         }
       : { motivo: respuesta ? 'formato_invalido' : 'sin_proveedor' };
 
@@ -159,7 +189,10 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
     const hace7 = new Date(ahora.getTime() - 7 * DIA_MS);
     const hace30 = new Date(ahora.getTime() - 30 * DIA_MS);
     const [x, y] = d.personas;
-    const personasJson = JSON.stringify(y ? ordenarPar(x, y) : [x]);
+    const esPar = d.personas.length === 2;
+    const personasJson = JSON.stringify(
+      esPar ? ordenarPar(x, y) : [...d.personas].sort(),
+    );
 
     const [{ n: alertasPrevias }] = await tx.$queryRaw<{ n: number }[]>`
       SELECT count(*)::int AS n FROM registros_auditoria
@@ -167,7 +200,7 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
         AND creado_en < ${a.creado_en} AND id <> ${a.id}::uuid`;
 
     let par: CifrasPar | null = null;
-    if (y) {
+    if (esPar) {
       const reservas = await tx.$queryRaw<
         {
           salida: Date;
@@ -217,7 +250,7 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
 
     const personas: CifrasPersona[] = [];
     for (const id of d.personas) {
-      const otro = d.personas.find((p) => p !== id) ?? null;
+      const otro = esPar ? (d.personas.find((p) => p !== id) ?? null) : null;
       const [c] = await tx.$queryRaw<
         {
           antiguedad_dias: number;
@@ -261,6 +294,13 @@ export class AnalisisRiesgoService implements OnModuleInit, OnModuleDestroy {
 
     return {
       patron: d.patron,
+      ...(d.patron === 'anillo_colusion' && {
+        anillo: {
+          personas: d.personas.length,
+          viajesInternos: d.viajesInternos ?? 0,
+          proporcion: d.proporcion ?? 0,
+        },
+      }),
       cantidad: d.cantidad,
       distanciaM: d.distanciaM,
       minutos: d.minutos,
